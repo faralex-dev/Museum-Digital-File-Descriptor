@@ -16,7 +16,7 @@ logging.basicConfig(
 
 
 # Заголовок в окне программы
-TITLE = "MediaInfo XML Generator v1.0.0 / faralex"
+TITLE = "Museum Digital File Descriptor v1.0.0 / faralex"
 
 # Исключаем из обработки при обработке директорий
 SKIP_EXT = ('.txt', '.xml')
