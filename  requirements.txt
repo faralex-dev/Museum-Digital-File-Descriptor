@@ -1,0 +1,13 @@
+pymediainfo==6.0.1
+wand==0.6.11
+pygost==5.0.0
+python-docx==0.8.11
+odfpy==1.4.1
+striprtf==0.0.25
+cryptography==38.0.4
+Pillow==9.5.0
+tkinterdnd2==0.3.0
+ttkthemes==3.2.2
+chardet==5.2.0
+pywin32==306; sys_platform == 'win32'
+tqdm==4.66.1

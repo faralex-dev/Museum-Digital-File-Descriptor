@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+.gigaide/
+*.iml
+
+# Logs and databases
+*.log
+*.sqlite
+
+# Local development
+.env
+.env.local
+
+# OS generated
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.exe
+*.msi
+*.spec
+favicon.ico
+requirements2.txt
+
+# test
+test/
+pystribog/
+*.rar
+*.zip
+*.7z
