@@ -1,20 +1,41 @@
-# MediaInfo XML Generator
+# Museum Digital File Descriptor
 
-Программа для создания технической документации цифровых объектов для музейных фондов.
+Is a tool for generating XML metadata files with detailed descriptions and hash sums for selected digital files. It is designed for museums to facilitate the inclusion of digital objects into museum collections. According to Russian Federation regulations, a digital museum object consists of both the object file itself and its accompanying metadata files.
 
-В соответствии с едиными правилами хранения музейных предметов - для приема в коллекцию 
-цифровой предмет должен состоять из основного файла, а также файла с описанием и файла с контрольными суммами.
+This program ensures the integrity and proper documentation of digital assets by creating structured XML files containing:
+- File metadata (format, size, resolution, etc.)
+- Hash sums (GR3411_2012_256, SHA1) for verification
+- Additional technical details (e.g., compression type, encoding)
 
-Программа формирует эти файлы автоматически. А также формирует файл с припиской _KAMIS - для более 
-удобного чтения человеком и заполнения данных в систему КАМИС
+**Key Features:**  
+✔ Supports various file types: documents, images, audio, video  
+✔ Computes hash sums for authenticity verification  
+✔ Extracts technical metadata (DPI, bit depth, compression, etc.)  
+✔ Processes single files and entire directories  
+✔ Helps museums comply with Russian digital collection standards
+
+This tool simplifies the workflow for digital file acquisition and management in museums, ensuring compliance with national regulations and long-term preservation standards.
+
+---
 
 
-## Особенности
-- Поддержка медиафайлов: видео, аудио, изображения
-- Работа с документами: PDF, DOCX, RTF, ODT
-- Расчет контрольных сумм (ГОСТ Р 34.11-2012 и SHA-1)
-- Генерация XML и сопроводительной документации
-- Графический интерфейс с поддержкой drag-n-drop
+Инструмент для создания XML-файлов с описанием и хеш-суммами выбранных цифровых файлов. Разработан для музеев, чтобы упростить включение цифровых объектов в музейные коллекции. Согласно инструкциям РФ, цифровой музейный предмет состоит из самого файла объекта и сопроводительных файлов описания.
+
+Программа обеспечивает целостность и правильную документацию цифровых активов, создавая структурированные XML-файлы с:
+- Метаданными файла (формат, размер, разрешение и т. д.)
+- Хеш-суммами (GR3411_2012_256, SHA1) для проверки подлинности
+- Дополнительными техническими данными (тип сжатия, кодировка и др.)
+
+**Основные возможности:**  
+✔ Поддержка различных типов файлов: документы, изображения, аудио, видео  
+✔ Вычисление хеш-сумм для проверки подлинности  
+✔ Извлечение технических метаданных (DPI, битовая глубина, сжатие и др.)  
+✔ Обработка одиночных файлов и целых директорий  
+✔ Соответствие российским стандартам учета цифровых коллекций
+
+Этот инструмент упрощает процесс приема цифровых объектов в музейные коллекции, обеспечивая соответствие нормативным требованиям и стандартам долговременного хранения.
+
+
 
 ## Установка
 1. Установите Python 3.10+
