@@ -134,7 +134,7 @@ class FileAnalyzer:
         self.file_checksum_sha256.text = self.metadata["checksum"]
 
     def _create_video_info_xml(self):
-        self._create_generic_info_xml()
+        # self._create_generic_info_xml()
         self.metadata["Type"] = 'Video'
         self.media_info = MediaInfo.parse(self.file_path)
         self.media_tracks = ET.SubElement(self.file_info, 'Extended', name="Расширенные свойства")
@@ -307,13 +307,13 @@ class FileAnalyzer:
                                 element.text = str(value)
 
     def _create_audio_info_xml(self):
-        self._create_generic_info_xml()
+        # self._create_generic_info_xml()
         self._create_video_info_xml()
         self.metadata["Type"] = 'Audio'
 
 
     def _create_image_info_xml(self):
-        self._create_generic_info_xml()
+        # self._create_generic_info_xml()
         self.metadata["Type"] = 'Image'
         self.image_info = get_image_info(self.file_path)
 
@@ -357,7 +357,7 @@ class FileAnalyzer:
 
     def _create_pdf_info_xml(self):
         """Генерация XML для PDF-файлов."""
-        self._create_generic_info_xml()
+       # self._create_generic_info_xml()
 
         self.metadata["Type"] = 'PDF'
         import PyPDF2
@@ -371,7 +371,7 @@ class FileAnalyzer:
 
     def _create_document_info_xml(self):
         """Генерация XML для PDF-файлов."""
-        self._create_generic_info_xml()
+        # self._create_generic_info_xml()
         self.metadata["Type"] = 'Document'
 
         media_tracks = ET.SubElement(self.file_info, 'Extended', name="Расширенные свойства")

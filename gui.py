@@ -208,5 +208,4 @@ def start_gui():
 
     root.drop_target_register(DND_FILES)
     root.dnd_bind('<<Drop>>', on_drop)
-
     root.mainloop()

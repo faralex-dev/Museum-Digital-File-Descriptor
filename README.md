@@ -39,6 +39,7 @@ This tool simplifies the workflow for digital file acquisition and management in
 
 ## Установка
 1. Установите Python 3.10+
+2. Установите ImageMagick https://imagemagick.org/script/download.php
 
 2. Скачайте репозиторий
 ```bash
@@ -48,7 +49,8 @@ cd Museum-Digital-File-Descriptor
 
 3. Создайте виртуальное окружение
 ```bash
-python3 -m venv venv
+python -m venv venv
+venv\Scripts\activate
 ```
 
 4. Установите зависимости:
@@ -61,7 +63,9 @@ git clone --depth 1  https://github.com/ddulesov/pystribog.git
 cd pystribog
 # Требует наличия Microsoft C++ Build Tools
 # https://aka.ms/vs/17/release/vs_BuildTools.exe
-python3 setup.py build install
+pip install setuptools
+python setup.py build install
+cd ..
 ```
 
 
