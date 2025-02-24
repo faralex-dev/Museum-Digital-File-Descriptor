@@ -42,8 +42,8 @@ This tool simplifies the workflow for digital file acquisition and management in
 
 2. Скачайте репозиторий
 ```bash
-git clone {URL}
-cd {path}
+git clone https://github.com/faralex-dev/Museum-Digital-File-Descriptor.git
+cd Museum-Digital-File-Descriptor
 ```
 
 3. Создайте виртуальное окружение
