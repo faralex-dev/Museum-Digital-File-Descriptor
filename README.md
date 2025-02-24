@@ -35,29 +35,29 @@ This tool simplifies the workflow for digital file acquisition and management in
 
 Этот инструмент упрощает процесс приема цифровых объектов в музейные коллекции, обеспечивая соответствие нормативным требованиям и стандартам долговременного хранения.
 
-
+---
 
 ## Установка
 1. Установите Python 3.10+
 2. Установите ImageMagick https://imagemagick.org/script/download.php
 
-2. Скачайте репозиторий
+3. Скачайте репозиторий
 ```bash
 git clone https://github.com/faralex-dev/Museum-Digital-File-Descriptor.git
 cd Museum-Digital-File-Descriptor
 ```
 
-3. Создайте виртуальное окружение
+4. Создайте виртуальное окружение
 ```bash
 python -m venv venv
 venv\Scripts\activate
 ```
 
-4. Установите зависимости:
+5. Установите зависимости:
 ```bash
 pip install -r requirements.txt
 ```
-5. Установите библиотеку pystribog
+6. Установите библиотеку pystribog
 ```bash
 git clone --depth 1  https://github.com/ddulesov/pystribog.git
 cd pystribog
