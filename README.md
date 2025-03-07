@@ -63,7 +63,6 @@ git clone --depth 1  https://github.com/ddulesov/pystribog.git
 cd pystribog
 # Требует наличия Microsoft C++ Build Tools
 # https://aka.ms/vs/17/release/vs_BuildTools.exe
-pip install setuptools
 python setup.py build install
 cd ..
 ```
