@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "museum-digital-file-descriptor"
+dynamic = ["version"]
+description = "Описания цифровых музейных предметов: XML-метаданные, контрольные суммы SHA-256 и ГОСТ 34.11-2018, сверка"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "faralex" }]
+dependencies = [
+    "pymediainfo>=7.0",
+    "Pillow>=10.0",
+    "pypdf>=4.0",
+    "olefile>=0.47",
+]
+
+[project.optional-dependencies]
+raw = ["rawpy>=0.19"]
+dnd = ["tkinterdnd2>=0.4"]
+dev = ["pytest>=8", "gostcrypto>=1.2", "pyinstaller>=6"]
+
+[project.scripts]
+mdfd = "mdfd.cli:main"
+
+[project.gui-scripts]
+mdfd-gui = "mdfd.gui:main"
+
+[tool.setuptools.packages.find]
+include = ["mdfd*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "mdfd.__version__" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

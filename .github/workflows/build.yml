@@ -1,0 +1,110 @@
+name: Тесты и сборка
+
+on:
+  push:
+    branches: [main, v2]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Тесты (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+        python: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: MediaInfo (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libmediainfo0v5
+      - name: Зависимости
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Модуль ГОСТ на C
+        run: python setup.py build_ext --inplace
+      - name: Тесты
+        env:
+          MDFD_REQUIRE_NATIVE: "1"
+        run: python -m pytest -v
+
+  build:
+    name: Сборка (${{ matrix.os }})
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            archive: MuseumDigitalFileDescriptor-windows-x64.zip
+          - os: macos-latest
+            archive: MuseumDigitalFileDescriptor-macos-arm64.zip
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Зависимости
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Модуль ГОСТ на C
+        run: python setup.py build_ext --inplace
+      - name: Проверка перед сборкой
+        env:
+          MDFD_REQUIRE_NATIVE: "1"
+        run: python -m pytest -q
+      - name: PyInstaller
+        run: pyinstaller --noconfirm packaging/mdfd.spec
+      - name: Проверка собранной программы (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          dist\MuseumDigitalFileDescriptor-cli\mdfd.exe --version
+          dist\MuseumDigitalFileDescriptor-cli\mdfd.exe info tests\data\video_h264_aac.mp4 --hash
+      - name: Проверка собранной программы (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          dist/MuseumDigitalFileDescriptor-cli/mdfd --version
+          dist/MuseumDigitalFileDescriptor-cli/mdfd info tests/data/video_h264_aac.mp4 --hash
+      - name: Архив (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Copy-Item dist\MuseumDigitalFileDescriptor-cli\mdfd.exe dist\MuseumDigitalFileDescriptor\
+          Copy-Item README.md, CHANGELOG.md dist\MuseumDigitalFileDescriptor\
+          Compress-Archive -Path dist\MuseumDigitalFileDescriptor -DestinationPath ${{ matrix.archive }}
+      - name: Архив (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          cp README.md CHANGELOG.md dist/
+          cd dist && ditto -c -k --keepParent MuseumDigitalFileDescriptor.app ../${{ matrix.archive }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive }}
+          path: ${{ matrix.archive }}
+
+  release:
+    name: Релиз
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: "*.zip"
+          draft: true

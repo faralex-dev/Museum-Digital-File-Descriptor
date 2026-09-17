@@ -1,86 +1,145 @@
 # Museum Digital File Descriptor
 
-Is a tool for generating XML metadata files with detailed descriptions and hash sums for selected digital files. It is designed for museums to facilitate the inclusion of digital objects into museum collections. According to Russian Federation regulations, a digital museum object consists of both the object file itself and its accompanying metadata files.
+Программа для хранителей: создаёт описания цифровых музейных предметов и
+проверяет их сохранность по главе 33 Единых правил (приём, учёт и хранение
+цифровых музейных предметов).
 
-This program ensures the integrity and proper documentation of digital assets by creating structured XML files containing:
-- File metadata (format, size, resolution, etc.)
-- Hash sums (GR3411_2012_256, SHA1) for verification
-- Additional technical details (e.g., compression type, encoding)
+Для каждого предмета создаются:
 
-**Key Features:**  
-✔ Supports various file types: documents, images, audio, video  
-✔ Computes hash sums for authenticity verification  
-✔ Extracts technical metadata (DPI, bit depth, compression, etc.)  
-✔ Processes single files and entire directories  
-✔ Helps museums comply with Russian digital collection standards
+- **файл метаданных** — XML в UTF-8: учётный номер, формат, размер, даты,
+  контрольные суммы и технические характеристики по п. 33.14
+  (продолжительность, разрешение, битрейт, кодеки, каналы, частота; метод
+  сжатия, размер и разрешение изображения; кодировка, язык, количество знаков
+  и страниц текста);
+- **файл контрольных сумм** мастер-копии и файла метаданных —
+  **SHA-256** и **ГОСТ 34.11-2018** (п. 33.15);
+- **памятка для КАМИС** (по желанию) и сводная таблица CSV.
 
-This tool simplifies the workflow for digital file acquisition and management in museums, ensuring compliance with national regulations and long-term preservation standards.
+Во вкладке **«Сверка»** программа пересчитывает контрольные суммы, пробует
+открыть файлы, находит пропавшие и лишние файлы, проверяет резервную копию
+и выдаёт отчёт с датой для поля «Сверка» в КАМИС (пп. 33.5–33.8).
 
----
-
-
-Инструмент для создания XML-файлов с описанием и хеш-суммами выбранных цифровых файлов. Разработан для музеев, чтобы упростить включение цифровых объектов в музейные коллекции. Согласно инструкциям РФ, цифровой музейный предмет состоит из самого файла объекта и сопроводительных файлов описания.
-
-Программа обеспечивает целостность и правильную документацию цифровых активов, создавая структурированные XML-файлы с:
-- Метаданными файла (формат, размер, разрешение и т. д.)
-- Хеш-суммами (GR3411_2012_256, SHA1) для проверки подлинности
-- Дополнительными техническими данными (тип сжатия, кодировка и др.)
-
-**Основные возможности:**  
-✔ Поддержка различных типов файлов: документы, изображения, аудио, видео  
-✔ Вычисление хеш-сумм для проверки подлинности  
-✔ Извлечение технических метаданных (DPI, битовая глубина, сжатие и др.)  
-✔ Обработка одиночных файлов и целых директорий  
-✔ Соответствие российским стандартам учета цифровых коллекций
-
-Этот инструмент упрощает процесс приема цифровых объектов в музейные коллекции, обеспечивая соответствие нормативным требованиям и стандартам долговременного хранения.
-
----
+Формат описания и отличия от версии 1.x: [docs/format-2.0.md](docs/format-2.0.md).
 
 ## Установка
-1. Установите Python 3.10+
-2. Установите ImageMagick https://imagemagick.org/script/download.php
 
-3. Скачайте репозиторий
+### Готовая программа
+
+Скачайте архив для своей системы на странице
+[Releases](https://github.com/faralex-dev/Museum-Digital-File-Descriptor/releases),
+распакуйте и запустите:
+
+- Windows — `MuseumDigitalFileDescriptor.exe` (рядом лежит `mdfd.exe` для командной строки);
+- macOS — `MuseumDigitalFileDescriptor.app`. Программа не подписана, поэтому
+  при первом запуске откройте её через контекстное меню → «Открыть».
+
+Python и другие программы устанавливать не нужно.
+
+### Из исходников
+
+Нужен Python 3.10 или новее.
+
 ```bash
 git clone https://github.com/faralex-dev/Museum-Digital-File-Descriptor.git
 cd Museum-Digital-File-Descriptor
+python -m venv .venv
 ```
 
-4. Создайте виртуальное окружение
-```bash
-python -m venv venv
-venv\Scripts\activate
-```
+Активируйте окружение (Windows: `.venv\Scripts\activate`, macOS/Linux:
+`source .venv/bin/activate`) и установите программу:
 
-5. Установите зависимости:
 ```bash
 pip install -r requirements.txt
-```
-6. Установите библиотеку pystribog
-```bash
-git clone --depth 1  https://github.com/ddulesov/pystribog.git
-cd pystribog
-# Требует наличия Microsoft C++ Build Tools
-# https://aka.ms/vs/17/release/vs_BuildTools.exe
-python setup.py build install
-cd ..
-```
-
-
-## Использование
-Запустите программу:
-```bash
-# Активируем виртуальное окружение и запускаем
-venv\Scripts\activate.bat
+python setup.py build_ext --inplace
 python main.py
 ```
 
+Вторая команда собирает модуль ГОСТ на C. Если компилятора нет, программа всё
+равно работает, но хеш ГОСТ считается примерно в сто раз медленнее
+(на вкладке «О программе» это видно). На Linux дополнительно нужна системная
+библиотека MediaInfo (`libmediainfo0v5`).
+
+## Как пользоваться
+
+### Описание
+
+1. Выберите файл или папку (или перетащите в окно).
+2. Укажите, что считать предметом:
+   - **Папка — один предмет.** Все файлы папки, включая подпапки, — мастер-копии
+     одного предмета. Описание называется по имени папки.
+   - **Каждая подпапка — отдельный предмет.** Выберите папку репозитория: каждая
+     её подпапка будет описана отдельно.
+   - **Каждый файл — отдельный предмет.** Описание рядом с каждым файлом:
+     `фото.jpg.xml`, `фото.jpg.checksums.txt`.
+3. Заполните сведения о предмете. Учётный номер, если его не ввести, берётся из
+   имени папки до первого «_» (п. 33.17): `ГМИГ КП ЭФ-55_Петров А.А._Соловки` →
+   `ГМИГ КП ЭФ-55`.
+4. Нажмите «Создать описание».
+
+Уже описанные предметы пропускаются. Если включить «Пересоздавать
+существующие описания», программа сначала сверит файлы со старым описанием и
+откажется перезаписывать его, если файлы изменились.
+
+### Сверка
+
+Выберите папку предмета или всего репозитория, при необходимости — папку
+резервной копии с той же структурой, и нажмите «Начать сверку». Отчёт
+сохраняется в текст или CSV.
+
+### Командная строка
+
+```bash
+mdfd describe "D:\Репозиторий" --mode subfolders --topography "Сервер 1" --csv kamis.csv
+mdfd verify "D:\Репозиторий" --backup "E:\Копия" --report сверка.txt
+mdfd info видео.mp4 --hash
+```
+
+Из исходников вместо `mdfd` пишите `python main.py`. Код возврата `verify`:
+0 — всё в порядке, 3 — найдены проблемы.
+
 ## Поддерживаемые форматы
-- Видео	MP4, AVI, MOV, MKV, WMV, MPEG
-- Аудио	MP3, WAV, FLAC, AAC, OGG, M4A
-- Изображения	JPG, PNG, TIFF, RAW (CR2, NEF)
-- Документы	PDF, DOCX, RTF, ODT
 
-Для остальных форматов программа создает xml с базовой информацией: размер, хэш, имя
+| Вид | Форматы |
+|---|---|
+| Видео | MP4, MOV, AVI, MKV, WebM, WMV, MPEG, TS/MTS, MXF, FLV и др. (через MediaInfo) |
+| Аудио | WAV/BWF, FLAC, MP3, AAC, M4A, OGG/Opus, AIFF, WMA |
+| Изображения | TIFF, JPEG, PNG, JPEG 2000, WebP, GIF, BMP, DNG и RAW камер (CR2, NEF, ARW…, нужен rawpy), HEIC |
+| Текст | PDF (версия, PDF/A, страницы, текстовый слой), DOCX, DOC, ODT, RTF, TXT, CSV, HTML, XML, а также XLSX, PPTX, ODS, ODP |
 
+Для остальных файлов записываются размер, даты и контрольные суммы.
+
+## Разработка
+
+```bash
+pip install -r requirements-dev.txt
+python setup.py build_ext --inplace
+python -m pytest
+pyinstaller packaging/mdfd.spec
+```
+
+Сборки для Windows и macOS делает GitHub Actions
+([.github/workflows/build.yml](.github/workflows/build.yml)); при создании
+тега `v*` архивы прикладываются к черновику релиза.
+
+Устройство кода:
+
+| Модуль | Что делает |
+|---|---|
+| `mdfd/hashing/` | контрольные суммы; `_streebog.c` — ГОСТ 34.11-2018 на C, `streebog.py` — запасная реализация на Python |
+| `mdfd/probes/` | технические сведения: `media` (MediaInfo), `image` (Pillow, rawpy), `pdf` (pypdf), `office`, `text` |
+| `mdfd/package.py` | поиск файлов мастер-копии, создание описания |
+| `mdfd/xmlio.py`, `checksums.py`, `kamis.py` | запись XML, файла контрольных сумм, памятки и CSV |
+| `mdfd/verify.py` | сверка |
+| `mdfd/gui.py`, `cli.py` | интерфейс и командная строка |
+| `mdfd/formats.py` | справочник форматов и идентификаторов PRONOM |
+
+Обзор кода версии 1.x — [docs/review-1.x.md](docs/review-1.x.md),
+история изменений — [CHANGELOG.md](CHANGELOG.md).
+
+---
+
+**English.** A tool for museums to describe digital museum objects according
+to Russian regulations: it writes a UTF-8 XML metadata file and a checksum file
+(SHA-256 and GOST R 34.11-2012/34.11-2018 "Streebog") for each object folder,
+extracts technical metadata (MediaInfo, Pillow, pypdf), adds PRONOM format
+identifiers, and verifies fixity of the repository and its backups.
