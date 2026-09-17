@@ -617,7 +617,15 @@ class App:
         self.verify_tab.worker.cancel.set()
         self.root.destroy()
 
+    def bring_to_front(self) -> None:
+        """На macOS окно, запущенное из терминала, открывается позади других окон."""
+        self.root.lift()
+        self.root.attributes("-topmost", True)
+        self.root.after(300, lambda: self.root.attributes("-topmost", False))
+        self.root.focus_force()
+
     def run(self) -> None:
+        self.root.after(100, self.bring_to_front)
         self.root.mainloop()
 
 
