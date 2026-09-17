@@ -122,7 +122,7 @@ def test_plain_text(name, encoding, language):
 
 def test_text_counts(tmp_path):
     path = tmp_path / "t.txt"
-    path.write_text("Раз два\nтри\n", encoding="utf-8")
+    path.write_bytes("Раз два\nтри\n".encode("utf-8"))
     _, p = props_at(path)
     assert p["characters"] == "12 (без пробелов: 9)"
     assert p["words"] == "3"

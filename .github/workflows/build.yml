@@ -20,8 +20,8 @@ jobs:
         os: [windows-latest, macos-latest, ubuntu-latest]
         python: ["3.10", "3.13"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
       - name: MediaInfo (Linux)
@@ -34,9 +34,22 @@ jobs:
       - name: Модуль ГОСТ на C
         run: python setup.py build_ext --inplace
       - name: Тесты
+        shell: bash
         env:
           MDFD_REQUIRE_NATIVE: "1"
-        run: python -m pytest -v
+          PYTHONUTF8: "1"
+        run: |
+          set -o pipefail
+          python -c "from mdfd.hashing import BACKEND; print('ГОСТ:', BACKEND)"
+          python -m pytest -rf --tb=short 2>&1 | tee pytest.log
+      - name: Итоги тестов в сводку
+        if: always()
+        shell: bash
+        run: |
+          echo '### ${{ matrix.os }}, Python ${{ matrix.python }}' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          tail -n 120 pytest.log >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "нет журнала" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
   build:
     name: Сборка (${{ matrix.os }})
@@ -50,8 +63,8 @@ jobs:
           - os: macos-latest
             archive: MuseumDigitalFileDescriptor-macos-arm64.zip
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Зависимости
