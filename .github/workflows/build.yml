@@ -37,7 +37,7 @@ jobs:
         shell: bash
         env:
           MDFD_REQUIRE_NATIVE: "1"
-          PYTHONUTF8: "1"
+          PYTHONIOENCODING: utf-8
         run: |
           set -o pipefail
           python -c "from mdfd.hashing import BACKEND; print('ГОСТ:', BACKEND)"
