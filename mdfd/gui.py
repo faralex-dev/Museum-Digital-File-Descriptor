@@ -114,12 +114,97 @@ class Progress:
         self.label["text"] = text
 
 
-def entry_row(parent, row: int, label: str, var: tk.Variable, width: int = 60, hint: str = "") -> ttk.Entry:
-    ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=PAD, pady=2)
+class Tooltip:
+    """Всплывающая подсказка при наведении мыши."""
+
+    DELAY_MS = 500
+
+    def __init__(self, widget, text: str):
+        self.widget = widget
+        self.text = text
+        self.window: tk.Toplevel | None = None
+        self.job = None
+        widget.bind("<Enter>", self._schedule, add="+")
+        widget.bind("<Leave>", self._hide, add="+")
+        widget.bind("<ButtonPress>", self._hide, add="+")
+
+    def _schedule(self, _event=None) -> None:
+        self._cancel()
+        self.job = self.widget.after(self.DELAY_MS, self._show)
+
+    def _cancel(self) -> None:
+        if self.job is not None:
+            self.widget.after_cancel(self.job)
+            self.job = None
+
+    def _show(self) -> None:
+        if self.window is not None or not self.text:
+            return
+        x = self.widget.winfo_rootx() + 12
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        self.window = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        tk.Label(tw, text=self.text, justify="left", wraplength=420, background="#ffffe8",
+                 foreground="#202020", relief="solid", borderwidth=1, padx=8, pady=5).pack()
+
+    def _hide(self, _event=None) -> None:
+        self._cancel()
+        if self.window is not None:
+            self.window.destroy()
+            self.window = None
+
+
+def tip(widget, text: str):
+    Tooltip(widget, text)
+    return widget
+
+
+MODE_TIPS = {
+    package.MODE_FOLDER: (
+        "Выбранная папка — это один предмет. Все файлы в ней, включая подпапки, — его мастер-копии; "
+        "контрольные суммы считаются для каждого файла отдельно и записываются в один файл сумм.\n"
+        "Описание кладётся в эту же папку и называется по её имени."),
+    package.MODE_SUBFOLDERS: (
+        "Выбрана папка репозитория. Каждая её подпапка описывается как отдельный предмет, "
+        "учётный номер берётся из имени подпапки.\nУже описанные предметы пропускаются — удобно "
+        "запускать на весь репозиторий после новых поступлений. Файлы, лежащие прямо в выбранной "
+        "папке, пропускаются."),
+    package.MODE_FILES: (
+        "Каждый файл в папке (и в подпапках) — отдельный предмет. Описание кладётся рядом с файлом: "
+        "«фото.jpg.xml», «фото.jpg.checksums.txt».\nДля случая, когда номера присвоены файлам, "
+        "а отдельных папок у предметов нет."),
+}
+CARRIER_TIP = (
+    "Физический носитель, на котором предмет поступил или дополнительно хранится, — если он есть: "
+    "диск M-Disc (DVD, BD), внешний жёсткий диск, кассета LTO и т. п. На носитель наносится "
+    "учётный номер.\nЕсли предмет хранится только в цифровом репозитории, оставьте поле пустым — "
+    "место в репозитории указывается в «Топографии».")
+TOPOGRAPHY_TIP = "Где хранится мастер-копия: сервер, раздел и папка цифрового репозитория."
+KAMIS_TIP = (
+    "Рядом с описанием создаётся «….kamis.txt» — текст для переноса в карточку КАМИС: "
+    "формат, размер, дата, контрольные суммы и характеристики файла. Файл вспомогательный, "
+    "в единицу хранения не входит.")
+OVERWRITE_TIP = (
+    "Если описание уже есть, создать его заново. Перед этим программа сверит файлы со старым "
+    "описанием и откажется перезаписывать, если какой-то файл изменился.")
+CSV_TIP = (
+    "Сохранить таблицу (CSV, открывается в Excel) по всем предметам, описанным в этом запуске: "
+    "одна строка на файл — учётный номер, формат, размер, дата, контрольные суммы, характеристики "
+    "и замечания. Удобно для заполнения КАМИС при описании многих предметов сразу.")
+
+
+def entry_row(parent, row: int, label: str, var: tk.Variable, width: int = 60, hint: str = "",
+              tooltip: str = "") -> ttk.Entry:
+    lbl = ttk.Label(parent, text=label)
+    lbl.grid(row=row, column=0, sticky="w", padx=PAD, pady=2)
     entry = ttk.Entry(parent, textvariable=var, width=width)
     entry.grid(row=row, column=1, sticky="ew", padx=PAD, pady=2)
     if hint:
         ttk.Label(parent, text=hint, foreground="gray").grid(row=row + 1, column=1, sticky="w", padx=PAD)
+    if tooltip:
+        tip(lbl, tooltip)
+        tip(entry, tooltip)
     return entry
 
 
@@ -155,6 +240,7 @@ class DescribeTab(ttk.Frame):
         for value, label in package.MODE_LABELS.items():
             b = ttk.Radiobutton(modes, text=label, value=value, variable=self.mode, command=self.update_state)
             b.pack(side="left", padx=(0, 12))
+            tip(b, MODE_TIPS[value])
             self.mode_buttons.append(b)
         if TkinterDnD is not None:
             ttk.Label(src, text="Файл или папку можно перетащить в окно.", foreground="gray").grid(
@@ -163,15 +249,16 @@ class DescribeTab(ttk.Frame):
         info = ttk.LabelFrame(self, text="Сведения о предмете (пп. 33.13–33.14 Единых правил)", padding=PAD)
         info.grid(row=1, column=0, sticky="ew", pady=PAD)
         info.columnconfigure(1, weight=1)
-        self.number_entry = entry_row(info, 0, "Учётный номер (КП):", self.number,
-                                      hint="Если не заполнено — часть имени папки до первого «_», "
-                                           "например «ГМИГ КП ЭФ-55».")
+        self.number_entry = entry_row(info, 0, "Учётный номер (КП):", self.number)
+        self.number_hint = ttk.Label(info, foreground="gray")
+        self.number_hint.grid(row=1, column=1, sticky="w", padx=PAD)
+        self.update_number_hint()
         self.title_entry = entry_row(info, 2, "Наименование:", self.title_var)
         ttk.Label(info, text="Описание:").grid(row=3, column=0, sticky="nw", padx=PAD, pady=2)
         self.description = tk.Text(info, height=3, width=60, wrap="word")
         self.description.grid(row=3, column=1, sticky="ew", padx=PAD, pady=2)
-        entry_row(info, 4, "Место хранения (топография):", self.topography)
-        entry_row(info, 5, "Носитель:", self.carrier)
+        entry_row(info, 4, "Место хранения (топография):", self.topography, tooltip=TOPOGRAPHY_TIP)
+        entry_row(info, 5, "Носитель (если есть):", self.carrier, tooltip=CARRIER_TIP)
         entry_row(info, 6, "Сведения о нормализации:", self.normalization,
                   hint="Исходный формат и программы, которыми файл приведён к формату хранения (п. 33.13 Единых правил).")
         self.batch_hint = ttk.Label(info, foreground="gray", text="")
@@ -179,9 +266,10 @@ class DescribeTab(ttk.Frame):
 
         opts = ttk.Frame(self)
         opts.grid(row=2, column=0, sticky="ew")
-        ttk.Checkbutton(opts, text="Создавать памятку для КАМИС", variable=self.write_kamis).pack(side="left")
-        ttk.Checkbutton(opts, text="Пересоздавать существующие описания",
-                        variable=self.overwrite).pack(side="left", padx=12)
+        tip(ttk.Checkbutton(opts, text="Создавать памятку для КАМИС", variable=self.write_kamis),
+            KAMIS_TIP).pack(side="left")
+        tip(ttk.Checkbutton(opts, text="Пересоздавать существующие описания", variable=self.overwrite),
+            OVERWRITE_TIP).pack(side="left", padx=12)
 
         buttons = ttk.Frame(self)
         buttons.grid(row=3, column=0, sticky="ew", pady=PAD)
@@ -192,6 +280,7 @@ class DescribeTab(ttk.Frame):
         self.csv_button = ttk.Button(buttons, text="Сводная таблица для КАМИС…", command=self.save_csv,
                                      state="disabled")
         self.csv_button.pack(side="right")
+        tip(self.csv_button, CSV_TIP)
 
         self.progress = Progress(self)
         self.progress.frame.grid(row=4, column=0, sticky="ew")
@@ -226,6 +315,13 @@ class DescribeTab(ttk.Frame):
         if current and current.exists():
             return str(current if current.is_dir() else current.parent)
         return str(Path.home())
+
+    def update_number_hint(self) -> None:
+        sep = self.app.settings.number_separator
+        example = f"ГМИГ КП ЭФ-55{sep}Петров А.А." if sep else "ГМИГ КП ЭФ-55"
+        number = package.split_name(example, sep)[0]
+        rule = f"часть имени папки до первого «{sep}»" if sep else "всё имя папки"
+        self.number_hint["text"] = f"Если не заполнено — {rule}: «{example}» → «{number}». Разделитель — в настройках."
 
     def set_source(self, path: Path) -> None:
         self.source.set(str(path))
@@ -284,11 +380,13 @@ class DescribeTab(ttk.Frame):
             progress=lambda label, n: self.worker.emit("progress", label, n),
             cancel=self.worker.cancel,
         )
-        self.worker.start(self._work, source, self.mode.get(), template, describer)
+        self.worker.start(self._work, source, self.mode.get(), template, describer,
+                          self.app.settings.number_separator)
         self.app.poll(self.worker, self.handle)
 
-    def _work(self, source: Path, mode: str, template: ItemInfo, describer: package.Describer) -> None:
-        plan = package.plan(source, mode, template)
+    def _work(self, source: Path, mode: str, template: ItemInfo, describer: package.Describer,
+              separator: str) -> None:
+        plan = package.plan(source, mode, template, separator)
         self.worker.emit("plan", plan, package.total_bytes(plan.items))
         for item in plan.items:
             if self.worker.cancel.is_set():
@@ -388,8 +486,12 @@ class VerifyTab(ttk.Frame):
             "Если указана резервная копия, проверяются файлы копии по контрольным суммам мастер-копии. "
             "Структура папок копии должна совпадать."), wraplength=640).grid(
             row=2, column=0, columnspan=3, sticky="w", padx=PAD)
-        ttk.Checkbutton(box, text="Проверять, что файлы открываются (изображения, PDF, документы, контейнеры видео)",
-                        variable=self.open_files).grid(row=3, column=0, columnspan=3, sticky="w", pady=(PAD, 0))
+        tip(ttk.Checkbutton(box, text="Проверять, что файлы открываются (изображения, PDF, документы, контейнеры видео)",
+                            variable=self.open_files),
+            "Кроме контрольных сумм программа пробует открыть каждый файл: изображения декодируются, "
+            "у PDF читаются все страницы, у DOCX/ODT проверяется архив, у видео и аудио — структура "
+            "контейнера. Воспроизведение видео и звука нужно проверять плеером (п. 33.8)."
+            ).grid(row=3, column=0, columnspan=3, sticky="w", pady=(PAD, 0))
 
         buttons = ttk.Frame(self)
         buttons.grid(row=1, column=0, sticky="ew", pady=PAD)
@@ -517,23 +619,68 @@ class SettingsTab(ttk.Frame):
         self.museum = tk.StringVar(value=s.museum)
         self.topography = tk.StringVar(value=s.topography)
         self.carrier = tk.StringVar(value=s.carrier)
+        self.separator = tk.StringVar(value=self._separator_label(s.number_separator))
         self.columnconfigure(1, weight=1)
         entry_row(self, 0, "Название музея:", self.museum, hint="Записывается в каждое описание.")
-        entry_row(self, 2, "Топография по умолчанию:", self.topography)
-        entry_row(self, 3, "Носитель по умолчанию:", self.carrier)
-        ttk.Button(self, text="Сохранить", command=self.save).grid(row=4, column=1, sticky="w", padx=PAD, pady=PAD)
+        entry_row(self, 2, "Топография по умолчанию:", self.topography, tooltip=TOPOGRAPHY_TIP)
+        entry_row(self, 3, "Носитель по умолчанию:", self.carrier, tooltip=CARRIER_TIP)
+
+        sep_label = ttk.Label(self, text="Разделитель учётного номера:")
+        sep_label.grid(row=4, column=0, sticky="w", padx=PAD, pady=(PAD, 2))
+        combo = ttk.Combobox(self, textvariable=self.separator, width=24, values=list(self.SEPARATORS))
+        combo.grid(row=4, column=1, sticky="w", padx=PAD, pady=(PAD, 2))
+        sep_tip = ("Учётный номер берётся из имени папки (или файла) — часть до первого разделителя. "
+                   "Остальное записывается как классификатор (ФИО, место и т. п.).\n"
+                   "Можно выбрать из списка или ввести свой разделитель. Не выбирайте символ, который "
+                   "встречается в самом номере, — пробел или дефис: в «ГМИГ КП ЭФ-55» есть оба. "
+                   "Проверьте результат по примеру под полем.")
+        tip(sep_label, sep_tip)
+        tip(combo, sep_tip)
+        self.preview = ttk.Label(self, foreground="gray")
+        self.preview.grid(row=5, column=1, sticky="w", padx=PAD)
+        self.separator.trace_add("write", lambda *_: self.update_preview())
+        self.update_preview()
+
+        ttk.Button(self, text="Сохранить", command=self.save).grid(row=6, column=1, sticky="w", padx=PAD, pady=PAD)
         ttk.Label(self, text=f"Настройки и журнал: {config_dir()}", foreground="gray").grid(
-            row=5, column=0, columnspan=2, sticky="w", padx=PAD, pady=(PAD * 2, 0))
+            row=7, column=0, columnspan=2, sticky="w", padx=PAD, pady=(PAD * 2, 0))
         ttk.Button(self, text="Открыть папку настроек",
                    command=lambda: (config_dir().mkdir(parents=True, exist_ok=True),
                                     open_in_file_manager(config_dir()))).grid(
-            row=6, column=0, sticky="w", padx=PAD)
+            row=8, column=0, sticky="w", padx=PAD)
+
+    # Подписи в списке -> сам разделитель
+    SEPARATORS = {
+        "_ (подчёркивание)": "_",
+        "__ (два подчёркивания)": "__",
+        ", (запятая)": ",",
+        "нет — номер = всё имя": "",
+    }
+
+    @classmethod
+    def _separator_label(cls, value: str) -> str:
+        return next((label for label, sep in cls.SEPARATORS.items() if sep == value), value)
+
+    def separator_value(self) -> str:
+        text = self.separator.get()
+        return self.SEPARATORS.get(text, text)
+
+    def update_preview(self) -> None:
+        sep = self.separator_value()
+        example = f"ГМИГ КП ЭФ-55{sep}Петров А.А.{sep}Соловки" if sep else "ГМИГ КП ЭФ-55"
+        number, classifier = package.split_name(example, sep)
+        text = f"Пример: «{example}» → номер «{number}»"
+        if classifier:
+            text += f", классификатор «{classifier}»"
+        self.preview["text"] = text
 
     def save(self) -> None:
         s = self.app.settings
         s.museum, s.topography, s.carrier = self.museum.get().strip(), self.topography.get().strip(), self.carrier.get().strip()
+        s.number_separator = self.separator_value()
         s.save()
         describe = self.app.describe_tab
+        describe.update_number_hint()
         if not describe.topography.get():
             describe.topography.set(s.topography)
         if not describe.carrier.get():

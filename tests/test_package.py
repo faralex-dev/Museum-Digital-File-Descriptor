@@ -303,3 +303,21 @@ def test_cli(tmp_path, capsys):
 
 def test_algorithms_in_new_descriptions():
     assert hashing.DEFAULT_ALGORITHMS == ("sha1", "gost256")
+
+
+@pytest.mark.parametrize("name,sep,expected", [
+    ("ГМИГ КП ЭФ-55_Петров А.А._Соловки", "_", ("ГМИГ КП ЭФ-55", "Петров А.А._Соловки")),
+    ("ГМИГ КП ЭФ-55 Петров", " ", ("ГМИГ", "КП ЭФ-55 Петров")),
+    ("КП ЭФ-55__Петров_А.А.", "__", ("КП ЭФ-55", "Петров_А.А.")),
+    ("КП ЭФ-55_Петров", "", ("КП ЭФ-55_Петров", "")),
+    ("без разделителя", "_", ("без разделителя", "")),
+])
+def test_split_name(name, sep, expected):
+    assert package.split_name(name, sep) == expected
+
+
+def test_plan_uses_separator(tmp_path):
+    make_item(tmp_path, "КП ЭФ-1__Иванов_И.И.", files=("image.png",))
+    plan = package.plan(tmp_path, package.MODE_SUBFOLDERS, ItemInfo(), separator="__")
+    assert plan.items[0].info.accession_number == "КП ЭФ-1"
+    assert plan.items[0].info.classifier == "Иванов_И.И."

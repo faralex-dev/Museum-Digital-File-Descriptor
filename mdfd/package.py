@@ -34,9 +34,18 @@ OK, SKIPPED, ERROR, CANCELLED = "ok", "skipped", "error", "cancelled"
 STATUS_LABELS = {OK: "Готово", SKIPPED: "Пропущено", ERROR: "Ошибка", CANCELLED: "Отменено"}
 
 
-def split_name(name: str) -> tuple[str, str]:
-    """'ГМИГ КП ЭФ-55_Петров А.А._Соловки' -> ('ГМИГ КП ЭФ-55', 'Петров А.А._Соловки')."""
-    number, _, rest = name.partition("_")
+DEFAULT_SEPARATOR = "_"
+
+
+def split_name(name: str, separator: str = DEFAULT_SEPARATOR) -> tuple[str, str]:
+    """Учётный номер и классификатор из имени папки или файла.
+
+    'ГМИГ КП ЭФ-55_Петров А.А._Соловки' -> ('ГМИГ КП ЭФ-55', 'Петров А.А._Соловки').
+    Пустой разделитель — номером считается всё имя.
+    """
+    if not separator:
+        return name.strip(), ""
+    number, _, rest = name.partition(separator)
     return number.strip(), rest.strip()
 
 
@@ -130,8 +139,9 @@ def resolve(root: Path, relpath: str) -> Path | None:
     return current
 
 
-def _item_info(template: ItemInfo, name: str, use_template_number: bool) -> ItemInfo:
-    number, classifier = split_name(name)
+def _item_info(template: ItemInfo, name: str, use_template_number: bool,
+               separator: str = DEFAULT_SEPARATOR) -> ItemInfo:
+    number, classifier = split_name(name, separator)
     info = replace(template)
     if not (use_template_number and template.accession_number):
         info.accession_number = number
@@ -145,13 +155,14 @@ class Plan:
     warnings: list[str] = field(default_factory=list)
 
 
-def plan(source: Path, mode: str, template: ItemInfo) -> Plan:
+def plan(source: Path, mode: str, template: ItemInfo, separator: str = DEFAULT_SEPARATOR) -> Plan:
     """Разбивает источник на предметы. Учётный номер берётся из имени папки
-    (часть до первого «_»), если он не задан явно для единственного предмета."""
+    (часть до первого разделителя, по умолчанию «_»), если он не задан явно
+    для единственного предмета."""
     source = Path(source)
     result = Plan()
     if source.is_file():
-        info = _item_info(template, Path(source.stem).name, True)
+        info = _item_info(template, Path(source.stem).name, True, separator)
         result.items.append(Item(source.parent, source.name, info, [source]))
         return result
     if not source.is_dir():
@@ -159,18 +170,18 @@ def plan(source: Path, mode: str, template: ItemInfo) -> Plan:
         return result
 
     if mode == MODE_FOLDER:
-        info = _item_info(template, source.name, True)
+        info = _item_info(template, source.name, True, separator)
         result.items.append(Item(source, source.name, info, collect_files(source, result.warnings)))
     elif mode == MODE_SUBFOLDERS:
         for child in sorted(source.iterdir()):
             if child.is_dir() and not is_hidden(child) and not child.is_symlink():
-                info = _item_info(template, child.name, False)
+                info = _item_info(template, child.name, False, separator)
                 result.items.append(Item(child, child.name, info, collect_files(child, result.warnings)))
             elif child.is_file() and not is_service_file(child):
                 result.warnings.append(f"Файл вне папки предмета пропущен: {child.name}")
     elif mode == MODE_FILES:
         for path in collect_files(source, result.warnings):
-            info = _item_info(template, Path(path.stem).name, False)
+            info = _item_info(template, Path(path.stem).name, False, separator)
             result.items.append(Item(path.parent, path.name, info, [path]))
     else:
         raise ValueError(f"Неизвестный режим: {mode}")

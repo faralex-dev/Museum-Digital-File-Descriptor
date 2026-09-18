@@ -26,6 +26,7 @@ class Settings:
     topography: str = ""
     carrier: str = ""
     mode: str = "folder"
+    number_separator: str = "_"   # разделитель учётного номера в имени папки
     write_kamis: bool = True
     verify_open_files: bool = True
     last_source: str = ""

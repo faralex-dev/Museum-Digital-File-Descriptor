@@ -38,7 +38,7 @@ def cmd_describe(args) -> int:
         normalization=args.normalization or "",
         museum=args.museum or "",
     )
-    plan = package.plan(Path(args.path), args.mode, template)
+    plan = package.plan(Path(args.path), args.mode, template, args.separator)
     for w in plan.warnings:
         print(f"! {w}")
     if not plan.items:
@@ -126,7 +126,10 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--mode", choices=list(package.MODE_LABELS), default=package.MODE_FOLDER,
                    help="folder — папка это один предмет; subfolders — каждая подпапка отдельный предмет; "
                         "files — каждый файл отдельный предмет")
-    d.add_argument("--number", help="учётный номер (по умолчанию — часть имени папки до «_»)")
+    d.add_argument("--number", help="учётный номер (по умолчанию — часть имени папки до разделителя)")
+    d.add_argument("--separator", default=package.DEFAULT_SEPARATOR,
+                   help="разделитель учётного номера в имени папки/файла (по умолчанию «_»; "
+                        "пустая строка — номером считается всё имя)")
     d.add_argument("--title", help="наименование")
     d.add_argument("--description", help="описание")
     d.add_argument("--topography", help="место хранения (топография)")
