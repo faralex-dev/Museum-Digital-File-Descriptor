@@ -32,6 +32,7 @@ UNREADABLE = "unreadable"
 DAMAGED = "damaged"
 EXTRA = "extra"
 NO_SUMS = "no_sums"
+INVALID = "invalid"
 
 LABELS = {
     OK: "в порядке",
@@ -41,8 +42,9 @@ LABELS = {
     DAMAGED: "ФАЙЛ НЕ ОТКРЫВАЕТСЯ",
     EXTRA: "лишний файл (нет в файле контрольных сумм)",
     NO_SUMS: "нет контрольных сумм известных алгоритмов",
+    INVALID: "НЕДОПУСТИМЫЙ ПУТЬ (выходит за пределы папки предмета)",
 }
-PROBLEMS = {MISMATCH, MISSING, UNREADABLE, DAMAGED, NO_SUMS}
+PROBLEMS = {MISMATCH, MISSING, UNREADABLE, DAMAGED, NO_SUMS, INVALID}
 
 IMAGE_LOAD_LIMIT = 400_000_000  # пикселей; большие изображения только проверяются без декодирования
 
@@ -163,12 +165,16 @@ def verify_item(
             result.files.append(FileCheck(checksum_path.name, MISMATCH,
                                           "файл контрольных сумм в копии отличается от мастер-копии"))
 
+    from .package import is_safe_relpath, resolve
     listed = parsed.by_file()
     for relpath, expected in listed.items():
         if cancel is not None and cancel.is_set():
             raise hashing.Cancelled()
-        path = root / relpath
-        if not path.is_file():
+        if not is_safe_relpath(relpath):
+            result.files.append(FileCheck(relpath, INVALID))
+            continue
+        path = resolve(root, relpath)
+        if path is None or not path.is_file():
             result.files.append(FileCheck(relpath, MISSING))
             continue
         if not expected:
@@ -179,8 +185,12 @@ def verify_item(
             actual = hashing.hash_file(path, expected.keys(), callback, cancel)
         except hashing.Cancelled:
             raise
+        except PermissionError:
+            result.files.append(FileCheck(relpath, UNREADABLE, "нет доступа (недостаточно прав)"))
+            continue
         except OSError as exc:
-            result.files.append(FileCheck(relpath, UNREADABLE, str(exc)))
+            result.files.append(FileCheck(relpath, UNREADABLE,
+                                          f"{exc.strerror or exc} — возможна неисправность носителя"))
             continue
         bad = [hashing.ALGORITHMS[k].tag for k, v in expected.items() if actual[k] != v]
         if bad:
@@ -196,45 +206,17 @@ def verify_item(
 
     # Лишние файлы: лежат в папке предмета, но не перечислены ни в одном
     # файле контрольных сумм этой папки. Подпапки со своими описаниями — другие предметы.
-    covered = set(listed)
-    for sibling in find_checksum_files_here(checksum_path.parent):
+    from .package import collect_files, nfc
+    covered = {nfc(p) for p in listed}
+    for sibling in checksums.files_in(checksum_path.parent):
         if sibling != checksum_path:
             other = checksums.parse(sibling)
-            covered.update(other.by_file() if other else ())
-    for path in _item_files(root):
-        rel = path.relative_to(root).as_posix()
+            covered.update(nfc(p) for p in (other.by_file() if other else ()))
+    for path in collect_files(root, warnings=[]):
+        rel = nfc(path.relative_to(root).as_posix())
         if rel not in covered:
             result.files.append(FileCheck(rel, EXTRA))
     return result
-
-
-def find_checksum_files_here(folder: Path) -> list[Path]:
-    """Файлы контрольных сумм только в этой папке (без подпапок)."""
-    try:
-        return [p for p in sorted(folder.iterdir())
-                if p.is_file() and p.name.lower().endswith(".txt") and checksums.parse(p) is not None]
-    except OSError:
-        return []
-
-
-def _item_files(root: Path) -> list[Path]:
-    from .package import is_service_file
-    found = []
-    for dirpath, dirnames, filenames in os.walk(root):
-        here = Path(dirpath)
-        keep = []
-        for d in sorted(dirnames):
-            if d.startswith("."):
-                continue
-            if find_checksum_files_here(here / d):
-                continue  # отдельный предмет
-            keep.append(d)
-        dirnames[:] = keep
-        for name in sorted(filenames):
-            path = here / name
-            if not is_service_file(path):
-                found.append(path)
-    return found
 
 
 def verify_tree(

@@ -32,6 +32,11 @@ def _prop_map(props) -> dict[str, str]:
     return {p.key: p.text for p in props}
 
 
+def _date(record: FileRecord) -> str:
+    dt = record.date_created
+    return dt.strftime("%d.%m.%Y %H:%M:%S") if dt else "неизвестна (дата файла повреждена)"
+
+
 def _extension(record: FileRecord) -> str:
     return record.extension.lower() or "без расширения"
 
@@ -42,7 +47,7 @@ def file_lines(record: FileRecord, topography: str) -> list[str]:
         f"Имя файла мастер-копии: {record.relpath}",
         f"Формат: {_extension(record)} ({probe.format_name})",
         f"Размер: {textfmt.size(record.size)}",
-        f"Дата создания: {record.date_created.strftime('%d.%m.%Y %H:%M:%S')}",
+        f"Дата создания: {_date(record)}",
     ]
     for key, value in record.checksums.items():
         out.append(f"Контрольная сумма {hashing.ALGORITHMS[key].label}: {value}")
@@ -65,6 +70,11 @@ def file_lines(record: FileRecord, topography: str) -> list[str]:
 
 
 def write(item: Item) -> Path:
+    atomic_write(item.kamis_path, render(item))
+    return item.kamis_path
+
+
+def render(item: Item) -> bytes:
     info = item.info
     lines = ["ПАМЯТКА ДЛЯ ЗАПОЛНЕНИЯ КАМИС (вспомогательный файл, не входит в единицу хранения)", ""]
     for label, value in (("Учётный номер", info.accession_number), ("Наименование", info.title),
@@ -81,8 +91,7 @@ def write(item: Item) -> Path:
         for note in dict.fromkeys(record.probe.notes):
             lines.append(f"Замечание: {note}")
     lines.append("")
-    atomic_write(item.kamis_path, "\n".join(lines).encode("utf-8"))
-    return item.kamis_path
+    return "\n".join(lines).encode("utf-8")
 
 
 CSV_COLUMNS = [
@@ -107,7 +116,7 @@ def csv_rows(item: Item):
             "Вид": formats.CATEGORY_LABELS.get(record.probe.category, ""),
             "Размер": textfmt.size(record.size),
             "Размер (байт)": record.size,
-            "Дата создания": record.date_created.strftime("%d.%m.%Y %H:%M:%S"),
+            "Дата создания": _date(record),
             "SHA-1": record.checksums.get("sha1", ""),
             "ГОСТ 34.11-2018": record.checksums.get("gost256", ""),
             "Место хранения": item.info.topography,

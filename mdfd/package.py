@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
+import unicodedata
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
@@ -57,16 +59,75 @@ def is_service_file(path: Path) -> bool:
     return False
 
 
-def collect_files(folder: Path) -> list[Path]:
-    """Все файлы мастер-копии в папке (с подпапками), в стабильном порядке."""
+def collect_files(folder: Path, warnings: list[str] | None = None) -> list[Path]:
+    """Все файлы мастер-копии в папке (с подпапками), в стабильном порядке.
+
+    Пропускаются служебные файлы, символические ссылки и подпапки, в которых
+    уже есть своё описание (это отдельные предметы). О пропущенном
+    сообщается в warnings.
+    """
+    warnings = warnings if warnings is not None else []
+    folder = Path(folder)
     found = []
     for dirpath, dirnames, filenames in os.walk(folder):
-        dirnames[:] = sorted(d for d in dirnames if not d.startswith("."))
+        here = Path(dirpath)
+        keep = []
+        for d in sorted(dirnames):
+            sub = here / d
+            if d.startswith("."):
+                continue
+            if sub.is_symlink():
+                warnings.append(f"Ссылка на папку пропущена: {sub.relative_to(folder).as_posix()}")
+            elif checksums.files_in(sub):
+                warnings.append(f"Подпапка «{sub.relative_to(folder).as_posix()}» — отдельный предмет "
+                                "со своим описанием, её файлы не включены.")
+            else:
+                keep.append(d)
+        dirnames[:] = keep
         for name in sorted(filenames):
-            path = Path(dirpath) / name
-            if path.is_file() and not is_service_file(path):
+            path = here / name
+            if path.is_symlink():
+                warnings.append(f"Символическая ссылка пропущена: {path.relative_to(folder).as_posix()}")
+            elif path.is_file() and not is_service_file(path):
                 found.append(path)
     return found
+
+
+def nfc(text: str) -> str:
+    """Имена в описаниях — в нормальной форме NFC. macOS может хранить «й» как
+    «и» + знак краткости (NFD); без приведения такие имена не совпадут на Windows."""
+    return unicodedata.normalize("NFC", text)
+
+
+_DRIVE = re.compile(r"^[A-Za-z]:([\\/]|$)")  # «C:\…», но не «a:b.png»
+
+
+def is_safe_relpath(relpath: str) -> bool:
+    """Путь из файла контрольных сумм не должен выходить за пределы папки предмета."""
+    parts = relpath.replace("\\", "/").split("/")
+    return (bool(relpath) and not relpath.startswith(("/", "\\")) and not _DRIVE.match(relpath)
+            and all(p not in ("", ".", "..") for p in parts))
+
+
+def resolve(root: Path, relpath: str) -> Path | None:
+    """Находит файл по пути из описания, не различая формы NFC/NFD.
+    Возвращает None, если файла нет или путь небезопасен."""
+    if not is_safe_relpath(relpath):
+        return None
+    parts = relpath.replace("\\", "/").split("/")
+    direct = root.joinpath(*parts)
+    if direct.exists():
+        return direct
+    current = root
+    for part in parts:
+        try:
+            match = next((c for c in current.iterdir() if nfc(c.name) == nfc(part)), None)
+        except OSError:
+            return None
+        if match is None:
+            return None
+        current = match
+    return current
 
 
 def _item_info(template: ItemInfo, name: str, use_template_number: bool) -> ItemInfo:
@@ -99,16 +160,16 @@ def plan(source: Path, mode: str, template: ItemInfo) -> Plan:
 
     if mode == MODE_FOLDER:
         info = _item_info(template, source.name, True)
-        result.items.append(Item(source, source.name, info, collect_files(source)))
+        result.items.append(Item(source, source.name, info, collect_files(source, result.warnings)))
     elif mode == MODE_SUBFOLDERS:
         for child in sorted(source.iterdir()):
-            if child.is_dir() and not is_hidden(child):
+            if child.is_dir() and not is_hidden(child) and not child.is_symlink():
                 info = _item_info(template, child.name, False)
-                result.items.append(Item(child, child.name, info, collect_files(child)))
+                result.items.append(Item(child, child.name, info, collect_files(child, result.warnings)))
             elif child.is_file() and not is_service_file(child):
                 result.warnings.append(f"Файл вне папки предмета пропущен: {child.name}")
     elif mode == MODE_FILES:
-        for path in collect_files(source):
+        for path in collect_files(source, result.warnings):
             info = _item_info(template, Path(path.stem).name, False)
             result.items.append(Item(path.parent, path.name, info, [path]))
     else:
@@ -129,16 +190,48 @@ ProgressFn = Callable[[str, int], None]   # (текущий файл, прочи
 
 
 def _relpath(item: Item, path: Path) -> str:
-    return path.relative_to(item.root).as_posix()
+    return nfc(path.relative_to(item.root).as_posix())
 
 
-def _file_times(path: Path) -> tuple[datetime | None, datetime]:
+def _safe_datetime(timestamp) -> datetime | None:
+    """Дата из файловой системы. Повреждённые даты (до 1970 года на Windows,
+    далёкое будущее) не должны останавливать работу."""
+    if timestamp is None:
+        return None
+    try:
+        return textfmt.local_datetime(timestamp)
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def _file_times(path: Path) -> tuple[datetime | None, datetime | None]:
     st = path.stat()
     birth = getattr(st, "st_birthtime", None)
     if birth is None and os.name == "nt":
         birth = st.st_ctime
-    created = textfmt.local_datetime(birth) if birth else None
-    return created, textfmt.local_datetime(st.st_mtime)
+    return _safe_datetime(birth), _safe_datetime(st.st_mtime)
+
+
+BAD_NAME_CHARS = ("\n", "\r")
+
+
+class DescribeError(Exception):
+    """Ошибка с понятным для хранителя текстом."""
+
+
+def _read_error(exc: OSError, relpath: str) -> DescribeError:
+    if isinstance(exc, PermissionError):
+        return DescribeError(f"Нет доступа к файлу «{relpath}» (недостаточно прав).")
+    if isinstance(exc, FileNotFoundError):
+        return DescribeError(f"Файл «{relpath}» исчез во время работы.")
+    return DescribeError(f"Не удалось прочитать файл «{relpath}»: {exc.strerror or exc}. "
+                         "Возможна неисправность носителя.")
+
+
+def _write_error(exc: OSError, folder: Path) -> DescribeError:
+    if isinstance(exc, PermissionError):
+        return DescribeError(f"Нет прав на запись в папку «{folder.name}».")
+    return DescribeError(f"Не удалось записать описание в папку «{folder.name}»: {exc.strerror or exc}.")
 
 
 class Describer:
@@ -185,10 +278,10 @@ class Describer:
     def _changed_files(self, item: Item, parsed: checksums.ChecksumFile) -> list[str]:
         changed = []
         for relpath, sums in parsed.by_file().items():
-            path = item.root / relpath
-            if path == item.xml_path:
+            if nfc(relpath) == nfc(item.xml_path.name):
                 continue
-            if not path.exists():
+            path = resolve(item.root, relpath)
+            if path is None:
                 changed.append(f"{relpath} (нет файла)")
                 continue
             actual = hashing.hash_file(path, sums.keys(), self._progress_for(relpath), self.cancel)
@@ -208,6 +301,8 @@ class Describer:
             return self._describe(item)
         except hashing.Cancelled:
             return Report(item, CANCELLED, "Отменено пользователем.")
+        except DescribeError as exc:
+            return Report(item, ERROR, str(exc))
         except Exception as exc:  # noqa: BLE001
             log.exception("Ошибка при описании %s", item.root)
             return Report(item, ERROR, f"{type(exc).__name__}: {exc}")
@@ -220,28 +315,49 @@ class Describer:
             kind, _, text = verdict.partition(":")
             return Report(item, SKIPPED if kind == "SKIP" else ERROR, text)
 
+        bad_names = [_relpath(item, p) for p in item.sources if any(c in p.name for c in BAD_NAME_CHARS)]
+        if bad_names:
+            shown = ", ".join(repr(n) for n in bad_names)
+            return Report(item, ERROR, f"В имени файла есть перевод строки: {shown}. Переименуйте файл — "
+                                       "такое имя нельзя записать в файл контрольных сумм, и Windows его не откроет.")
+
         warnings: list[str] = []
         item.files = []
         for path in item.sources:
             if self.cancel.is_set():
                 raise hashing.Cancelled()
             relpath = _relpath(item, path)
-            size = path.stat().st_size
-            if size == 0:
+            try:
+                before = path.stat()
+                sums = hashing.hash_file(path, self.algorithms, self._progress_for(relpath), self.cancel)
+                after = path.stat()
+            except OSError as exc:
+                raise _read_error(exc, relpath) from exc
+            if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+                raise DescribeError(f"Файл «{relpath}» изменялся во время чтения (копирование ещё идёт?). "
+                                    "Дождитесь окончания и повторите.")
+            if after.st_size == 0:
                 warnings.append(f"{relpath}: файл пустой (0 байт).")
-            sums = hashing.hash_file(path, self.algorithms, self._progress_for(relpath), self.cancel)
             probe = probe_file(path)
             warnings += [f"{relpath}: {w}" for w in probe.warnings]
             created, modified = _file_times(path)
-            item.files.append(FileRecord(path, relpath, size, created, modified, sums, probe,
+            if modified is None:
+                warnings.append(f"{relpath}: дата файла повреждена и не записана.")
+            item.files.append(FileRecord(path, relpath, after.st_size, created, modified, sums, probe,
                                          path.suffix.lstrip(".")))
 
+        # Всё готовится в памяти и записывается в конце одним шагом: при сбое
+        # не остаётся XML без файла контрольных сумм.
         now = textfmt.local_datetime(datetime.now().timestamp())
-        outputs = [xmlio.write(item, now)]
-        xml_sums = hashing.hash_file(item.xml_path, self.algorithms)
-        outputs.append(checksums.write(item, xml_sums, now))
+        xml_data = xmlio.render(item, now)
+        files = {item.xml_path: xml_data,
+                 item.checksums_path: checksums.render(item, hashing.hash_bytes(xml_data, self.algorithms), now)}
         if self.write_kamis:
-            outputs.append(kamis.write(item))
+            files[item.kamis_path] = kamis.render(item)
+        try:
+            outputs = xmlio.write_all(files)
+        except OSError as exc:
+            raise _write_error(exc, item.root) from exc
         n = len(item.files)
         message = f"Описано {n} {textfmt.plural(n, 'файл', 'файла', 'файлов')}."
         return Report(item, OK, message, warnings, outputs)

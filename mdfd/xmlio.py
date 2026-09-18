@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -13,13 +14,24 @@ ROOT_TAG = "DigitalMuseumItem"
 LEGACY_ROOT_TAGS = {"GMIG"}  # версия 1.x
 
 
+# Символы, недопустимые в XML 1.0: управляющие (кроме табуляции и переводов
+# строки), одиночные суррогаты (так Python представляет непрочитанные байты
+# в именах файлов) и U+FFFE/U+FFFF. Они встречаются в тексте, вставленном из
+# Word, и в метаданных камер — без очистки XML становится нечитаемым.
+_INVALID_XML = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]")
+
+
+def clean_text(value) -> str:
+    return _INVALID_XML.sub("\ufffd", str(value))
+
+
 def _el(parent, tag: str, text=None, label: str | None = None, **attrs) -> ET.Element:
-    clean = {k: str(v) for k, v in attrs.items() if v not in (None, "")}
+    clean = {k: clean_text(v) for k, v in attrs.items() if v not in (None, "")}
     if label:
         clean = {"label": label, **clean}
     element = ET.SubElement(parent, tag, clean)
     if text not in (None, ""):
-        element.text = str(text)
+        element.text = clean_text(text)
     return element
 
 
@@ -109,22 +121,39 @@ def build(item: Item, created: datetime) -> ET.Element:
     return root
 
 
-def write(item: Item, created: datetime) -> Path:
+def render(item: Item, created: datetime) -> bytes:
     root = build(item, created)
     ET.indent(root, space="  ")
-    data = b'<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="utf-8") + b"\n"
-    atomic_write(item.xml_path, data)
-    return item.xml_path
+    return b'<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="utf-8") + b"\n"
+
+
+def write_all(files: dict[Path, bytes]) -> list[Path]:
+    """Записывает несколько файлов «всё или ничего»: сначала во временные файлы,
+    затем переименовывает. Если записать не удалось, прежние файлы не тронуты,
+    а временные удаляются."""
+    temps: dict[Path, Path] = {}
+    try:
+        for path, data in files.items():
+            tmp = path.with_name(f".{path.name}.tmp")
+            temps[path] = tmp
+            with open(tmp, "wb") as f:
+                f.write(data)
+                f.flush()
+                os.fsync(f.fileno())
+        for path, tmp in temps.items():
+            os.replace(tmp, path)
+    finally:
+        for tmp in temps.values():
+            try:
+                tmp.unlink()
+            except FileNotFoundError:
+                pass
+    return list(files)
 
 
 def atomic_write(path: Path, data: bytes) -> None:
     """Запись через временный файл: при сбое старый файл остаётся целым."""
-    tmp = path.with_name(f".{path.name}.tmp")
-    with open(tmp, "wb") as f:
-        f.write(data)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, path)
+    write_all({path: data})
 
 
 def root_tag(path: Path) -> str | None:

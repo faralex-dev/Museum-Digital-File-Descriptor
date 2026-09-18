@@ -54,7 +54,7 @@ class FileRecord:
     relpath: str               # путь относительно папки предмета, через «/»
     size: int
     created: datetime | None   # дата создания файла в файловой системе
-    modified: datetime
+    modified: datetime | None  # None, если дата в файловой системе повреждена
     checksums: dict[str, str]  # ключ алгоритма -> HEX
     probe: ProbeResult
     extension: str
@@ -64,15 +64,14 @@ class FileRecord:
         return self.path.name
 
     @property
-    def date_created(self) -> datetime:
+    def date_created(self) -> datetime | None:
         """Дата создания для описания.
 
         При копировании файла Windows ставит «дату создания» на момент копии,
         а дату изменения сохраняет, поэтому берётся более ранняя из двух.
         """
-        if self.created is None:
-            return self.modified
-        return min(self.created, self.modified)
+        dates = [d for d in (self.created, self.modified) if d is not None]
+        return min(dates) if dates else None
 
 
 @dataclass

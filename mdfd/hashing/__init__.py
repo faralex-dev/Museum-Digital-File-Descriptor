@@ -75,6 +75,16 @@ def algorithm_by_tag(tag: str) -> Algorithm | None:
 ProgressCallback = Callable[[int], None]
 
 
+def hash_bytes(data: bytes, algorithms: Iterable[str] = DEFAULT_ALGORITHMS) -> dict[str, str]:
+    """Контрольные суммы данных в памяти (например, ещё не записанного XML)."""
+    out = {}
+    for key in algorithms:
+        h = ALGORITHMS[key].factory()
+        h.update(data)
+        out[key] = h.hexdigest().upper()
+    return out
+
+
 def hash_file(
     path: Path,
     algorithms: Iterable[str] = DEFAULT_ALGORITHMS,

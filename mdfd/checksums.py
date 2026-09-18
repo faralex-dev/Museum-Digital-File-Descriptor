@@ -48,7 +48,7 @@ class ChecksumFile:
 def _line(algo_key: str, relpath: str, value: str) -> str:
     return f"{hashing.ALGORITHMS[algo_key].tag} ({relpath}) = {value}"
 
-def write(item: Item, xml_sums: dict[str, str], created: datetime) -> Path:
+def render(item: Item, xml_sums: dict[str, str], created: datetime) -> bytes:
     lines = [
         HEADER,
         f"# Формат файла: {FORMAT_VERSION}. Создан: {textfmt.date_time(created)}, {APP_NAME} {__version__}.",
@@ -65,8 +65,20 @@ def write(item: Item, xml_sums: dict[str, str], created: datetime) -> Path:
     lines.append(f"# Файл метаданных: {item.xml_path.name}")
     lines += [_line(k, item.xml_path.name, v) for k, v in xml_sums.items()]
     lines.append("")
-    atomic_write(item.checksums_path, "\n".join(lines).encode("utf-8"))
+    return "\n".join(lines).encode("utf-8")
+
+
+def write(item: Item, xml_sums: dict[str, str], created: datetime) -> Path:
+    atomic_write(item.checksums_path, render(item, xml_sums, created))
     return item.checksums_path
+
+
+def _decode(raw: bytes) -> str:
+    """UTF-8; если файл пересохранили в Блокноте в «ANSI» — Windows-1251."""
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return raw.decode("cp1251", errors="replace")
 
 def _parse_v2(path: Path, text: str) -> ChecksumFile:
     result = ChecksumFile(path, FORMAT_VERSION)
@@ -113,14 +125,12 @@ def parse(path: Path) -> ChecksumFile | None:
         return None
     try:
         if name.endswith(CHECKSUMS_SUFFIX):
-            text = path.read_text(encoding="utf-8-sig")
-            return _parse_v2(path, text)
+            return _parse_v2(path, _decode(path.read_bytes()))
         if path.stat().st_size > LEGACY_MAX_SIZE:
             return None
         with open(path, "rb") as f:
-            raw = f.read(LEGACY_MAX_SIZE)
-        text = raw.decode("utf-8-sig")
-    except (OSError, UnicodeDecodeError):
+            text = _decode(f.read(LEGACY_MAX_SIZE))
+    except OSError:
         return None
     if text.startswith(HEADER):
         return _parse_v2(path, text)
@@ -129,3 +139,12 @@ def parse(path: Path) -> ChecksumFile | None:
         if parsed.entries:
             return parsed
     return None
+
+
+def files_in(folder: Path) -> list[Path]:
+    """Файлы контрольных сумм в этой папке (без подпапок)."""
+    try:
+        return [p for p in sorted(folder.iterdir())
+                if p.is_file() and p.name.lower().endswith(".txt") and parse(p) is not None]
+    except OSError:
+        return []
