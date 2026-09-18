@@ -12,7 +12,8 @@
   сжатия, размер и разрешение изображения; кодировка, язык, количество знаков
   и страниц текста);
 - **файл контрольных сумм** мастер-копии и файла метаданных —
-  **SHA-256** и **ГОСТ 34.11-2018** (п. 33.15);
+  **SHA-1** (так считает КАМИС — суммы совпадают с учётной базой) и
+  **ГОСТ 34.11-2018** (п. 33.15);
 - **памятка для КАМИС** (по желанию) и сводная таблица CSV.
 
 Во вкладке **«Сверка»** программа пересчитывает контрольные суммы, пробует
@@ -140,6 +141,6 @@ pyinstaller packaging/mdfd.spec
 
 **English.** A tool for museums to describe digital museum objects according
 to Russian regulations: it writes a UTF-8 XML metadata file and a checksum file
-(SHA-256 and GOST R 34.11-2012/34.11-2018 "Streebog") for each object folder,
+(SHA-1, as used by the KAMIS collection database, and GOST R 34.11-2012/34.11-2018 "Streebog") for each object folder,
 extracts technical metadata (MediaInfo, Pillow, pypdf), adds PRONOM format
 identifiers, and verifies fixity of the repository and its backups.

@@ -55,14 +55,15 @@ def test_folder_item(tmp_path):
 
     data = (folder / "video_h264_aac.mp4").read_bytes()
     sums = {cs.get("algorithm"): cs.text for cs in files[1].iterfind("Checksums/Checksum")}
-    assert sums["SHA256"] == hashlib.sha256(data).hexdigest().upper()
+    assert list(sums) == ["SHA1", "GOST34.11-2018-256"]  # SHA-1 первой, как в КАМИС
+    assert sums["SHA1"] == hashlib.sha1(data).hexdigest().upper()
     assert sums["GOST34.11-2018-256"] == streebog.new(256, data).hexdigest().upper()
     assert xml.read_bytes().startswith(b'<?xml version="1.0" encoding="UTF-8"?>')
 
     parsed = checksums.parse(folder / f"{ITEM}.checksums.txt")
     listed = parsed.by_file()
     assert set(listed) == {"photo_exif.jpg", "sub/письмо.txt", "video_h264_aac.mp4", f"{ITEM}.xml"}
-    assert listed[f"{ITEM}.xml"]["sha256"] == hashlib.sha256(xml.read_bytes()).hexdigest().upper()
+    assert listed[f"{ITEM}.xml"]["sha1"] == hashlib.sha1(xml.read_bytes()).hexdigest().upper()
     assert (folder / f"{ITEM}.kamis.txt").exists()
 
 
@@ -161,6 +162,7 @@ def test_kamis_csv(tmp_path):
     out = kamis.write_csv([r.item for r in reports], tmp_path / "k.csv")
     text = out.read_text(encoding="utf-8-sig")
     assert text.splitlines()[0].startswith("Учётный номер;")
+    assert ";SHA-1;ГОСТ 34.11-2018;" in text.splitlines()[0]
     assert "AVC/H.264" in text
 
 
@@ -282,8 +284,8 @@ def test_checksum_file_is_bsd_compatible(tmp_path):
     folder = make_item(tmp_path, "К", files=("image.png",))
     describe(folder)
     lines = (folder / "К.checksums.txt").read_text(encoding="utf-8").splitlines()
-    sha_lines = [line for line in lines if line.startswith("SHA256 (")]
-    assert sha_lines[0] == f"SHA256 (image.png) = {hashlib.sha256((folder / 'image.png').read_bytes()).hexdigest().upper()}"
+    sha_lines = [line for line in lines if line.startswith("SHA1 (")]
+    assert sha_lines[0] == f"SHA1 (image.png) = {hashlib.sha1((folder / 'image.png').read_bytes()).hexdigest().upper()}"
 
 
 def test_cli(tmp_path, capsys):
@@ -300,4 +302,4 @@ def test_cli(tmp_path, capsys):
 
 
 def test_algorithms_in_new_descriptions():
-    assert hashing.DEFAULT_ALGORITHMS == ("sha256", "gost256")
+    assert hashing.DEFAULT_ALGORITHMS == ("sha1", "gost256")

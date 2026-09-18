@@ -49,15 +49,16 @@ GOST512 = Algorithm(
     lambda: streebog.new(512),
     aliases=("GR3411_2012_512", "GOST34112012_512", "STREEBOG512", "md_gost12_512"),
 )
-# SHA-1 и MD5 не используются в новых описаниях: они нужны только для
-# сверки описаний, сделанных версией 1.x и другими программами.
 SHA1 = Algorithm("sha1", "SHA1", "SHA-1", hashlib.sha1, aliases=("SHA-1",))
+# SHA-256 и MD5 в новых описаниях не используются: они нужны для сверки
+# описаний, сделанных другими программами (и ранними сборками 2.0 — SHA-256).
 MD5 = Algorithm("md5", "MD5", "MD5", hashlib.md5)
 
 ALGORITHMS = {a.key: a for a in (SHA256, GOST256, GOST512, SHA1, MD5)}
 
-# Алгоритмы для новых описаний (п. 33.14 правил: SHA-256 и ГОСТ 34.11-2018).
-DEFAULT_ALGORITHMS = ("sha256", "gost256")
+# Алгоритмы для новых описаний: SHA-1 — как считает КАМИС, чтобы суммы
+# совпадали с учётной базой; ГОСТ 34.11-2018 — по п. 33.14 правил.
+DEFAULT_ALGORITHMS = ("sha1", "gost256")
 
 
 def algorithm_by_tag(tag: str) -> Algorithm | None:
