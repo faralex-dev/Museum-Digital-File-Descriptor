@@ -123,7 +123,8 @@ jobs:
       - name: Текст релиза из CHANGELOG
         run: |
           version="${GITHUB_REF_NAME#v}"
-          awk -v v="$version" '$0 ~ "^## " v {f=1; next} /^## /{f=0} f' CHANGELOG.md > release-notes.md
+          awk -v v="$version" '$0 ~ "^## " v {f=1; next} /^## /{f=0} f' CHANGELOG.md \
+            | sed "s#](\(docs/[^)]*\))#](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/\1)#g" > release-notes.md
           test -s release-notes.md
       - uses: softprops/action-gh-release@v2
         with:
