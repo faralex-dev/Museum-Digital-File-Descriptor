@@ -1,4 +1,8 @@
-from gui import start_gui
+"""Запуск программы из исходников: python main.py (графический интерфейс)
+или python main.py describe|verify|info ... (командная строка)."""
+import sys
 
-if __name__ == '__main__':
-    start_gui()
+from mdfd.cli import main
+
+if __name__ == "__main__":
+    sys.exit(main())

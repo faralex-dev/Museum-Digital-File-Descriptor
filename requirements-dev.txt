@@ -1,0 +1,5 @@
+-r requirements.txt
+pytest>=8
+gostcrypto>=1.2
+pyinstaller>=6
+setuptools>=69

@@ -32,11 +32,14 @@ Thumbs.db
 *.exe
 *.msi
 *.spec
+!packaging/*.spec
 favicon.ico
 requirements2.txt
+*.pyd
 
 # test
 test/
+.pytest_cache/
 pystribog/
 *.rar
 *.zip

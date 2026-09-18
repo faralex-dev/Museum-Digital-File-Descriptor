@@ -1,0 +1,133 @@
+name: Тесты и сборка
+
+on:
+  push:
+    branches: [main, v2]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Тесты (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+        python: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: MediaInfo (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libmediainfo0v5
+      - name: Зависимости
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Модуль ГОСТ на C
+        run: python setup.py build_ext --inplace
+      - name: Тесты
+        shell: bash
+        env:
+          MDFD_REQUIRE_NATIVE: "1"
+          PYTHONIOENCODING: utf-8
+        run: |
+          set -o pipefail
+          python -c "from mdfd.hashing import BACKEND; print('ГОСТ:', BACKEND)"
+          python -m pytest -rf --tb=short 2>&1 | tee pytest.log
+      - name: Итоги тестов в сводку
+        if: always()
+        shell: bash
+        run: |
+          echo '### ${{ matrix.os }}, Python ${{ matrix.python }}' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          tail -n 120 pytest.log >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "нет журнала" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          # Аннотации видны на странице запуска даже без входа в GitHub
+          grep -E '^(FAILED|ERROR) ' pytest.log | head -20 | while read -r line; do echo "::error title=pytest::$line"; done || true
+
+  build:
+    name: Сборка (${{ matrix.os }})
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            archive: MuseumDigitalFileDescriptor-windows-x64.zip
+          - os: macos-latest
+            archive: MuseumDigitalFileDescriptor-macos-arm64.zip
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Зависимости
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Модуль ГОСТ на C
+        run: python setup.py build_ext --inplace
+      - name: Проверка перед сборкой
+        env:
+          MDFD_REQUIRE_NATIVE: "1"
+        run: python -m pytest -q
+      - name: PyInstaller
+        run: pyinstaller --noconfirm packaging/mdfd.spec
+      - name: Проверка собранной программы (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          dist\MuseumDigitalFileDescriptor-cli\mdfd.exe --version
+          dist\MuseumDigitalFileDescriptor-cli\mdfd.exe info tests\data\video_h264_aac.mp4 --hash
+      - name: Проверка собранной программы (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          dist/MuseumDigitalFileDescriptor-cli/mdfd --version
+          dist/MuseumDigitalFileDescriptor-cli/mdfd info tests/data/video_h264_aac.mp4 --hash
+      - name: Архив (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Copy-Item dist\MuseumDigitalFileDescriptor-cli\mdfd.exe dist\MuseumDigitalFileDescriptor\
+          Copy-Item README.md, CHANGELOG.md dist\MuseumDigitalFileDescriptor\
+          Compress-Archive -Path dist\MuseumDigitalFileDescriptor -DestinationPath ${{ matrix.archive }}
+      - name: Архив (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          cp README.md CHANGELOG.md dist/
+          cd dist && ditto -c -k --keepParent MuseumDigitalFileDescriptor.app ../${{ matrix.archive }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive }}
+          path: ${{ matrix.archive }}
+
+  release:
+    name: Релиз
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - name: Текст релиза из CHANGELOG
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '$0 ~ "^## " v {f=1; next} /^## /{f=0} f' CHANGELOG.md \
+            | sed "s#](\(docs/[^)]*\))#](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/\1)#g" > release-notes.md
+          test -s release-notes.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Museum Digital File Descriptor ${{ github.ref_name }}
+          body_path: release-notes.md
+          files: "*.zip"
