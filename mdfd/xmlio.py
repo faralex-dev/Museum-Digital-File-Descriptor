@@ -88,7 +88,7 @@ def build(item: Item, created: datetime) -> ET.Element:
 
     info = item.info
     node = _el(root, "Item", label="Сведения о предмете")
-    # Учётный номер обязателен (п. 33.13) — элемент есть всегда, остальные только если заполнены.
+    # Идентификатор предмета обязателен (пп. 33.13–33.14 Единых правил) — элемент есть всегда, остальные только если заполнены.
     _el(node, "AccessionNumber", info.accession_number, "Учётный номер (КП)")
     for tag, value, label in (
         ("Museum", info.museum, "Музей"),

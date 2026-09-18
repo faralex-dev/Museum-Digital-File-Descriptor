@@ -160,7 +160,7 @@ class DescribeTab(ttk.Frame):
             ttk.Label(src, text="Файл или папку можно перетащить в окно.", foreground="gray").grid(
                 row=2, column=0, columnspan=4, sticky="w", padx=PAD)
 
-        info = ttk.LabelFrame(self, text="Сведения о предмете (п. 33.13)", padding=PAD)
+        info = ttk.LabelFrame(self, text="Сведения о предмете (пп. 33.13–33.14 Единых правил)", padding=PAD)
         info.grid(row=1, column=0, sticky="ew", pady=PAD)
         info.columnconfigure(1, weight=1)
         self.number_entry = entry_row(info, 0, "Учётный номер (КП):", self.number,
@@ -173,7 +173,7 @@ class DescribeTab(ttk.Frame):
         entry_row(info, 4, "Место хранения (топография):", self.topography)
         entry_row(info, 5, "Носитель:", self.carrier)
         entry_row(info, 6, "Сведения о нормализации:", self.normalization,
-                  hint="Исходный формат и программы, которыми файл приведён к формату хранения (п. 33.13).")
+                  hint="Исходный формат и программы, которыми файл приведён к формату хранения (п. 33.13 Единых правил).")
         self.batch_hint = ttk.Label(info, foreground="gray", text="")
         self.batch_hint.grid(row=8, column=0, columnspan=2, sticky="w", padx=PAD)
 
@@ -375,7 +375,7 @@ class VerifyTab(ttk.Frame):
         self.open_files = tk.BooleanVar(value=app.settings.verify_open_files)
 
         self.columnconfigure(0, weight=1)
-        box = ttk.LabelFrame(self, text="Что проверить (пп. 33.5–33.8)", padding=PAD)
+        box = ttk.LabelFrame(self, text="Что проверить (пп. 33.5–33.8 Единых правил)", padding=PAD)
         box.grid(row=0, column=0, sticky="ew")
         box.columnconfigure(1, weight=1)
         ttk.Label(box, text="Папка предмета или репозитория:").grid(row=0, column=0, sticky="w", padx=PAD)
@@ -547,7 +547,7 @@ class AboutTab(ttk.Frame):
         from .probes import image, media
         lines = [
             (f"{APP_NAME} {__version__}", ("TkDefaultFont", 13, "bold")),
-            ("Описания цифровых музейных предметов по главе 33 Единых правил:", None),
+            ("Описания цифровых музейных предметов по разделу XXXIII Единых правил (приказ Минкультуры № 827):", None),
             ("файл метаданных (XML, UTF-8), файл контрольных сумм (SHA-1 и ГОСТ 34.11-2018), сверка.", None),
             ("", None),
             (f"Формат описания: {FORMAT_VERSION}", None),

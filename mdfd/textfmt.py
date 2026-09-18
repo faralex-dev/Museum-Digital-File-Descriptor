@@ -1,4 +1,4 @@
-"""Форматирование значений для описаний (по образцам из п. 33.14 правил)."""
+"""Форматирование значений для описаний (по образцам внутримузейных правил ГМИГ)."""
 from __future__ import annotations
 
 import re
@@ -36,7 +36,7 @@ def size(num_bytes: int) -> str:
 
 
 def bitrate(bits_per_second: float) -> str:
-    """Битрейт в Мбит/с (п. 33.14), для небольших значений — ещё и в кбит/с."""
+    """Битрейт в Мбит/с, для небольших значений — ещё и в кбит/с."""
     bps = int(round(bits_per_second))
     mbit = bps / 1_000_000
     exact = f"{group_digits(bps)} бит/с"
@@ -46,7 +46,7 @@ def bitrate(bits_per_second: float) -> str:
 
 
 def duration(milliseconds: float) -> str:
-    """Продолжительность 'чч:мм:сс' (п. 33.14), с миллисекундами, если они есть."""
+    """Продолжительность 'чч:мм:сс', с миллисекундами, если они есть."""
     total_ms = int(round(milliseconds))
     hours, rest = divmod(total_ms, 3_600_000)
     minutes, rest = divmod(rest, 60_000)
@@ -87,7 +87,7 @@ def date_time(dt: datetime) -> str:
 
 
 def date_only(dt: datetime) -> str:
-    """Дата для поля «Сверка» в КАМИС: '05.10.2022' (п. 33.5)."""
+    """Дата для поля «Сверка» в КАМИС: '05.10.2022' (так требуют внутримузейные правила)."""
     return dt.strftime("%d.%m.%Y")
 
 

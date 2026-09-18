@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 PRONOM_SIGNATURE_VERSION = "125"
 PRONOM_URL = "https://www.nationalarchives.gov.uk/PRONOM/{puid}"
 
-# Виды файлов (п. 33.14 правил).
+# Виды файлов.
 VIDEO = "video"
 AUDIO = "audio"
 IMAGE = "image"

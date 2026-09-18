@@ -12,7 +12,7 @@ try:
 except ImportError:  # pragma: no cover
     MediaInfo = None
 
-# Названия кодеков в виде, привычном по п. 33.14 («AVC/H.264»).
+# Названия кодеков в привычном виде («AVC/H.264»).
 VIDEO_CODECS = {
     "AVC": "AVC/H.264",
     "HEVC": "HEVC/H.265",

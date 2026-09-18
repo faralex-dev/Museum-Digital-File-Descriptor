@@ -12,14 +12,14 @@ from . import formats, hashing, textfmt
 from .model import FileRecord, Item
 from .xmlio import atomic_write
 
-# Порядок свойств в памятке — как в п. 33.14 правил.
+# Порядок свойств в памятке — как в перечне внутримузейных правил.
 ORDER = {
     formats.VIDEO: ["duration", "resolution", "video_bit_rate", "video_codec", "frame_rate"],
     formats.AUDIO: ["duration"],
     formats.IMAGE: ["compression", "pixel_size", "resolution"],
     formats.TEXT: ["encoding", "language", "characters", "pages", "slides", "sheets"],
 }
-# Подписи для аудиодорожки — как в п. 33.14.
+# Подписи для аудиодорожки — как в перечне внутримузейных правил.
 AUDIO_TRACK_LABELS = {
     "codec": "Аудиокодек",
     "bit_rate": "Аудиобитрейт",
