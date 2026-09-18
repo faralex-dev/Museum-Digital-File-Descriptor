@@ -317,7 +317,8 @@ def test_split_name(name, sep, expected):
 
 
 def test_plan_uses_separator(tmp_path):
-    make_item(tmp_path, "КП ЭФ-1__Иванов_И.И.", files=("image.png",))
+    # без точки в конце: Windows отбрасывает её в имени папки
+    make_item(tmp_path, "КП ЭФ-1__Иванов_И.И._Соловки", files=("image.png",))
     plan = package.plan(tmp_path, package.MODE_SUBFOLDERS, ItemInfo(), separator="__")
     assert plan.items[0].info.accession_number == "КП ЭФ-1"
-    assert plan.items[0].info.classifier == "Иванов_И.И."
+    assert plan.items[0].info.classifier == "Иванов_И.И._Соловки"
