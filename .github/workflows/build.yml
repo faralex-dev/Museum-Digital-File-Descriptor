@@ -116,10 +116,17 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
+      - name: Текст релиза из CHANGELOG
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '$0 ~ "^## " v {f=1; next} /^## /{f=0} f' CHANGELOG.md > release-notes.md
+          test -s release-notes.md
       - uses: softprops/action-gh-release@v2
         with:
+          name: Museum Digital File Descriptor ${{ github.ref_name }}
+          body_path: release-notes.md
           files: "*.zip"
-          draft: true
