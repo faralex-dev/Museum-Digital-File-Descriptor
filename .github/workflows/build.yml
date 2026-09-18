@@ -50,6 +50,8 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           tail -n 120 pytest.log >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "нет журнала" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+          # Аннотации видны на странице запуска даже без входа в GitHub
+          grep -E '^(FAILED|ERROR) ' pytest.log | head -20 | while read -r line; do echo "::error title=pytest::$line"; done || true
 
   build:
     name: Сборка (${{ matrix.os }})

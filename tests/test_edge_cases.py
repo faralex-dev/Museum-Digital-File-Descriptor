@@ -46,7 +46,8 @@ def test_control_characters_do_not_break_xml(tmp_path):
 def test_unusual_file_names(tmp_path):
     folder = item(tmp_path, files=())
     for name in ("a) = b.png", "#решётка.png", " пробелы .png", "a:b.png" if POSIX else "a;b.png",
-                 "очень " + "длинное " * 20 + "имя.png"):
+                 # около 200 байт: ближе к пределу Linux (255 байт на имя), но не за ним
+                 "очень " + "длинное " * 11 + "имя.png"):
         shutil.copy(DATA / "image.png", folder / name)
     reports, _ = describe(folder)
     assert reports[0].status == package.OK, reports[0].message
