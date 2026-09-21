@@ -49,6 +49,12 @@ def split_name(name: str, separator: str = DEFAULT_SEPARATOR) -> tuple[str, str]
     return number.strip(), rest.strip()
 
 
+def natural_key(name: str):
+    """Порядок «как у человека»: стр_2 раньше стр_10 (а не 1, 10, 100, 101, 2 …)."""
+    return [(0, int(part), "") if part.isdigit() else (1, 0, part.casefold())
+            for part in re.split(r"(\d+)", name)]
+
+
 def is_hidden(path: Path) -> bool:
     name = path.name
     return name.startswith(".") or name.startswith("~$") or name.lower() in SYSTEM_NAMES
@@ -81,7 +87,7 @@ def collect_files(folder: Path, warnings: list[str] | None = None) -> list[Path]
     for dirpath, dirnames, filenames in os.walk(folder):
         here = Path(dirpath)
         keep = []
-        for d in sorted(dirnames):
+        for d in sorted(dirnames, key=natural_key):
             sub = here / d
             if d.startswith("."):
                 continue
@@ -93,7 +99,7 @@ def collect_files(folder: Path, warnings: list[str] | None = None) -> list[Path]
             else:
                 keep.append(d)
         dirnames[:] = keep
-        for name in sorted(filenames):
+        for name in sorted(filenames, key=natural_key):
             path = here / name
             if path.is_symlink():
                 warnings.append(f"Символическая ссылка пропущена: {path.relative_to(folder).as_posix()}")
@@ -371,7 +377,25 @@ class Describer:
             raise _write_error(exc, item.root) from exc
         n = len(item.files)
         message = f"Описано {n} {textfmt.plural(n, 'файл', 'файла', 'файлов')}."
-        return Report(item, OK, message, warnings, outputs)
+        return Report(item, OK, message, warnings + self._item_warnings(item), outputs)
+
+    @staticmethod
+    def _item_warnings(item: Item) -> list[str]:
+        """Подозрительное в предмете в целом: одинаковые файлы, странный учётный номер."""
+        out = []
+        same: dict[tuple, list[str]] = {}
+        for record in item.files:
+            if record.size:
+                same.setdefault((record.size, tuple(sorted(record.checksums.items()))), []).append(record.relpath)
+        for names in same.values():
+            if len(names) > 1:
+                out.append("Файлы с одинаковым содержимым (побайтно): " + ", ".join(names)
+                           + ". Возможно, лишняя копия — проверьте.")
+        number = item.info.accession_number
+        if number and not any(ch.isdigit() for ch in number):
+            out.append(f"В учётном номере «{number}» нет цифр — возможно, разделитель разрезал номер. "
+                       "Проверьте разделитель на вкладке «Настройки» или введите номер вручную.")
+        return out
 
 
 def total_bytes(items: list[Item]) -> int:

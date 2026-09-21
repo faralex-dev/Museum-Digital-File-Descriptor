@@ -322,3 +322,24 @@ def test_plan_uses_separator(tmp_path):
     plan = package.plan(tmp_path, package.MODE_SUBFOLDERS, ItemInfo(), separator="__")
     assert plan.items[0].info.accession_number == "КП ЭФ-1"
     assert plan.items[0].info.classifier == "Иванов_И.И._Соловки"
+
+
+def test_natural_order_duplicates_and_number_warning(tmp_path):
+    folder = tmp_path / "ЦНАР_102"
+    folder.mkdir()
+    for n in (1, 2, 10, 100, 11):
+        shutil.copy(DATA / "image.png", folder / f"ЦНАР_102_{n}.png")
+        (folder / f"ЦНАР_102_{n}.png").write_bytes((DATA / "image.png").read_bytes() + bytes([n]))
+    shutil.copy(folder / "ЦНАР_102_100.png", folder / "ЦНАР_102_5 (2).png")
+    reports, _ = describe(folder)
+    report = reports[0]
+    assert [f.relpath for f in report.item.files] == [
+        "ЦНАР_102_1.png", "ЦНАР_102_2.png", "ЦНАР_102_5 (2).png", "ЦНАР_102_10.png",
+        "ЦНАР_102_11.png", "ЦНАР_102_100.png"]
+    assert any("одинаковым содержимым" in w and "ЦНАР_102_5 (2).png" in w and "ЦНАР_102_100.png" in w
+               for w in report.warnings)
+    assert any("нет цифр" in w for w in report.warnings)  # «ЦНАР» — номер без цифр
+
+    # с разделителем «нет» номер — всё имя, предупреждения о номере нет
+    plan = package.plan(folder, package.MODE_FOLDER, ItemInfo(), separator="")
+    assert plan.items[0].info.accession_number == "ЦНАР_102"
