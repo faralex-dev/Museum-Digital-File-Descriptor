@@ -343,3 +343,15 @@ def test_natural_order_duplicates_and_number_warning(tmp_path):
     # с разделителем «нет» номер — всё имя, предупреждения о номере нет
     plan = package.plan(folder, package.MODE_FOLDER, ItemInfo(), separator="")
     assert plan.items[0].info.accession_number == "ЦНАР_102"
+
+
+def test_single_file_item_ignores_neighbours(tmp_path):
+    """Описание одного файла не должно считать соседние файлы и подпапки «лишними»."""
+    shutil.copy(DATA / "audio.mp3", tmp_path / "запись.mp3")
+    (tmp_path / "другое").mkdir()
+    shutil.copy(DATA / "image.png", tmp_path / "другое" / "посторонний.png")
+    shutil.copy(DATA / "image.png", tmp_path / "сосед.png")
+    describe(tmp_path / "запись.mp3")
+    [check] = verify.verify_tree(tmp_path / "запись.mp3.checksums.txt")
+    assert check.ok
+    assert {f.status for f in check.files} == {verify.OK}

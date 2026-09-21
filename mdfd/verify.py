@@ -80,6 +80,17 @@ class ItemCheck:
         return "в порядке" + (f" (лишних файлов: {extra})" if extra else "")
 
 
+def single_file_item(checksum_path: Path, listed) -> bool:
+    """Описание одного файла: «<имя файла>.checksums.txt» рядом с этим файлом."""
+    from .model import CHECKSUMS_SUFFIX
+    from .package import nfc
+    name = checksum_path.name
+    if not name.lower().endswith(CHECKSUMS_SUFFIX):
+        return False
+    master = nfc(name[: -len(CHECKSUMS_SUFFIX)])
+    return master in {nfc(p) for p in listed}
+
+
 def find_checksum_files(root: Path) -> list[Path]:
     """Файлы контрольных сумм (версий 2.x и 1.x) в папке и подпапках."""
     root = Path(root)
@@ -209,7 +220,11 @@ def verify_item(
 
     # Лишние файлы: лежат в папке предмета, но не перечислены ни в одном
     # файле контрольных сумм этой папки. Подпапки со своими описаниями — другие предметы.
+    # У предмета «один файл» («фото.jpg.checksums.txt») и у описаний 1.x своей папки
+    # нет — соседние файлы к нему не относятся, искать лишние не нужно.
     from .package import collect_files, nfc
+    if parsed.version != "2.0" or single_file_item(checksum_path, listed):
+        return result
     covered = {nfc(p) for p in listed}
     for sibling in checksums.files_in(checksum_path.parent):
         if sibling != checksum_path:

@@ -215,7 +215,7 @@ def _video_track(track, n: int) -> Track:
     duration = _num(track.duration)
     if duration:
         add("duration", "Продолжительность", textfmt.duration(duration), duration)
-    add("language", "Язык", _language(track))
+    add("language", "Язык (метка в файле)", _language(track))
     add("title", "Название дорожки", _first(track.title))
     return t
 
@@ -239,7 +239,7 @@ def _audio_track(track, n: int) -> Track:
     duration = _num(track.duration)
     if duration:
         add("duration", "Продолжительность", textfmt.duration(duration), duration)
-    add("language", "Язык", _language(track))
+    add("language", "Язык (метка в файле)", _language(track))
     add("title", "Название дорожки", _first(track.title))
     return t
 
@@ -248,7 +248,7 @@ def _text_track(track, n: int) -> Track:
     t = Track("text", f"Субтитры {n}")
     add = _adder(t)
     add("format", "Формат", _first(track.format))
-    add("language", "Язык", _language(track))
+    add("language", "Язык (метка в файле)", _language(track))
     add("title", "Название дорожки", _first(track.title))
     return t
 
