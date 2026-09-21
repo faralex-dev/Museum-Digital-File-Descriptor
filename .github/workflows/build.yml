@@ -91,6 +91,10 @@ jobs:
         run: |
           dist/MuseumDigitalFileDescriptor-cli/mdfd --version
           dist/MuseumDigitalFileDescriptor-cli/mdfd info tests/data/video_h264_aac.mp4 --hash
+          # Как при запуске из Finder: без переменных окружения (локаль «C») и с русским именем файла
+          cp tests/data/video_h264_aac.mp4 "Видео ＂проверка？..＂.mp4"
+          env -i HOME="$HOME" PATH=/usr/bin:/bin dist/MuseumDigitalFileDescriptor-cli/mdfd info "Видео ＂проверка？..＂.mp4" | tee frozen.log
+          grep -q "Продолжительность" frozen.log
       - name: Архив (Windows)
         if: runner.os == 'Windows'
         shell: pwsh

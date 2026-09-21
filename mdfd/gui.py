@@ -155,6 +155,30 @@ class Tooltip:
             self.window = None
 
 
+def details_pane(parent, tree: ttk.Treeview, row: int) -> tk.Text:
+    """Поле под таблицей: полный текст выбранной строки (в таблице длинные
+    сообщения обрезаются по ширине столбца)."""
+    text = tk.Text(parent, height=4, wrap="word", relief="flat", borderwidth=1,
+                   background=parent.winfo_toplevel().cget("background"))
+    text.grid(row=row, column=0, sticky="ew", pady=(2, 0))
+    text.insert("1.0", "Выберите строку в таблице, чтобы увидеть сообщение целиком.")
+    text.configure(state="disabled")
+
+    def show(_event=None):
+        node = tree.focus()
+        if not node:
+            return
+        item = tree.item(node)
+        parts = [str(item["text"]).strip()] + [str(v) for v in item["values"] if str(v).strip()]
+        text.configure(state="normal")
+        text.delete("1.0", "end")
+        text.insert("1.0", "\n".join(parts))
+        text.configure(state="disabled")
+
+    tree.bind("<<TreeviewSelect>>", show, add="+")
+    return text
+
+
 def tip(widget, text: str):
     Tooltip(widget, text)
     return widget
@@ -294,6 +318,7 @@ class DescribeTab(ttk.Frame):
         self.tree.column("status", width=100, stretch=False)
         self.tree.column("message", width=380)
         self.tree.grid(row=5, column=0, sticky="nsew", pady=(PAD, 0))
+        details_pane(self, self.tree, 6)
         self.tree.bind("<Double-1>", self.open_selected)
         self.paths: dict[str, Path] = {}
         self.update_state()
@@ -516,6 +541,7 @@ class VerifyTab(ttk.Frame):
         self.tree.column("status", width=380)
         self.tree.tag_configure("bad", foreground="#b00020")
         self.tree.grid(row=4, column=0, sticky="nsew", pady=(PAD, 0))
+        details_pane(self, self.tree, 5)
 
     def choose(self, var: tk.StringVar) -> None:
         path = filedialog.askdirectory(initialdir=var.get() or str(Path.home()))

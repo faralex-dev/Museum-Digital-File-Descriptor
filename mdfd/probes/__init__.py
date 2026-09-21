@@ -46,7 +46,9 @@ def probe_file(path: Path) -> ProbeResult:
             if result.category == formats.OTHER:
                 result.warnings.clear()
     except Exception as exc:  # noqa: BLE001
-        result.warnings.append(f"Технические сведения получены не полностью: {exc}")
+        # полный путь в тексте ошибки только удлиняет сообщение
+        message = str(exc).replace(str(path), path.name)
+        result.warnings.append(f"Технические сведения получены не полностью: {message}")
 
     if result.puid and result.puid != info.puid:
         result.pronom_name = formats.PRONOM_NAMES.get(result.puid, "")

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
 from .. import formats, textfmt
@@ -72,6 +73,32 @@ TRANSLATE = {
     "Lossy": "с потерями",
     "Lossless": "без потерь",
 }
+
+
+_locale_checked = False
+
+
+def ensure_utf8_locale() -> None:
+    """MediaInfo на macOS и Linux переводит путь к файлу в байты по текущей
+    локали. У приложения, запущенного из Finder, локали нет («C»), и тогда
+    файлы с русскими буквами в пути не открываются. Включаем UTF-8 для имён."""
+    global _locale_checked
+    if _locale_checked or sys.platform == "win32":
+        return
+    _locale_checked = True
+    import locale
+    try:
+        current = locale.setlocale(locale.LC_CTYPE, "")
+    except locale.Error:
+        current = locale.setlocale(locale.LC_CTYPE)
+    if "utf" in current.lower().replace("-", ""):
+        return
+    for name in ("C.UTF-8", "en_US.UTF-8", "ru_RU.UTF-8", "UTF-8"):
+        try:
+            locale.setlocale(locale.LC_CTYPE, name)
+            return
+        except locale.Error:
+            continue
 
 
 def available() -> bool:
@@ -263,7 +290,12 @@ def probe(path: Path, result: ProbeResult) -> ProbeResult:
     if MediaInfo is None:
         result.warnings.append("Библиотека MediaInfo недоступна: технические сведения не получены.")
         return result
-    info = MediaInfo.parse(str(path))
+    ensure_utf8_locale()
+    try:
+        info = MediaInfo.parse(str(path))
+    except Exception:  # noqa: BLE001 - текст ошибки libmediainfo бесполезен для хранителя
+        result.warnings.append("MediaInfo не смог открыть файл: технические сведения о видео и звуке не получены.")
+        return result
     general = next((t for t in info.tracks if t.track_type == "General"), None)
     videos = [t for t in info.tracks if t.track_type == "Video"]
     audios = [t for t in info.tracks if t.track_type == "Audio"]

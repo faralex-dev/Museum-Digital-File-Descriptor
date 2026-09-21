@@ -132,6 +132,9 @@ def open_check(path: Path) -> str | None:
                      ".mts", ".m2ts", ".mxf", ".wav", ".mp3", ".flac", ".aac", ".m4a", ".ogg", ".aif",
                      ".aiff", ".wma"}:
             from pymediainfo import MediaInfo
+
+            from .probes.media import ensure_utf8_locale
+            ensure_utf8_locale()
             info = MediaInfo.parse(str(path))
             if not any(t.track_type in ("Video", "Audio") for t in info.tracks):
                 return "MediaInfo не нашёл ни видео-, ни аудиодорожек"

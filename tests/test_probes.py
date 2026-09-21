@@ -1,3 +1,4 @@
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -218,3 +219,23 @@ def test_formatting():
     assert textfmt.date_time(dt) == "05.10.2022 14:03:59 (UTC+00:00)"
     assert [textfmt.plural(n, "файл", "файла", "файлов") for n in (1, 2, 5, 11, 21, 22)] == [
         "файл", "файла", "файлов", "файлов", "файл", "файла"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="на Windows MediaInfo получает путь в UTF-16")
+def test_media_with_cyrillic_path_without_locale(tmp_path):
+    """Приложение, запущенное из Finder, стартует с локалью «C»: MediaInfo не
+    открывал файлы с русскими буквами в пути (ошибка в 2.0.1)."""
+    import locale
+    import shutil
+    from mdfd.probes import media
+    path = tmp_path / "Истории ＂Слыхали ль вы？..＂.mp4"
+    shutil.copy(DATA / "video_h264_aac.mp4", path)
+    saved = locale.setlocale(locale.LC_CTYPE)
+    try:
+        locale.setlocale(locale.LC_CTYPE, "C")
+        media._locale_checked = False
+        r = probe_file(path)
+        assert r.warnings == [], r.warnings
+        assert {p.key for p in r.props} >= {"duration", "resolution", "video_codec"}
+    finally:
+        locale.setlocale(locale.LC_CTYPE, saved)

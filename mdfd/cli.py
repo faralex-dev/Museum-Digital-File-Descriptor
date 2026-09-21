@@ -160,6 +160,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     _stdout_utf8()
+    from .probes.media import ensure_utf8_locale
+    ensure_utf8_locale()
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command in (None, "gui"):
