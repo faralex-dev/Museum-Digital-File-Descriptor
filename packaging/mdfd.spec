@@ -8,6 +8,8 @@ from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 
 ROOT = Path(SPECPATH).parent
 NAME = "MuseumDigitalFileDescriptor"
+sys.path.insert(0, str(ROOT))
+from mdfd import __version__  # noqa: E402
 
 binaries = collect_dynamic_libs("pymediainfo")
 datas = []
@@ -53,7 +55,7 @@ if sys.platform == "darwin":
         coll,
         name=f"{NAME}.app",
         bundle_identifier="io.github.faralex-dev.mdfd",
-        info_plist={"NSHighResolutionCapable": True, "CFBundleShortVersionString": "2.0.0"},
+        info_plist={"NSHighResolutionCapable": True, "CFBundleShortVersionString": __version__},
     )
 
 # Консольная версия (для пакетной обработки и планировщика заданий)
