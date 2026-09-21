@@ -181,12 +181,16 @@ def _compression(track) -> str:
 # Служебные названия дорожек, которые ставят программы записи, — ничего не сообщают
 GENERIC_TRACK_TITLES = {"core media video", "core media audio", "core media metadata", "soundhandler",
                         "videohandler", "sound media handler", "video media handler", "apple sound media handler",
-                        "apple video media handler", "mainconcept video media handler", "gpac isomedia handler"}
+                        "apple video media handler", "mainconcept video media handler", "gpac isomedia handler",
+                        # HandBrake и другие конвертеры называют дорожку по раскладке каналов
+                        "stereo", "mono", "surround", "surround 5.1", "surround 7.1", "5.1", "7.1", "2.0",
+                        "dolby surround"}
 
 
 def _track_title(track) -> str:
     title = _first(track.title)
-    return "" if title.strip().casefold() in GENERIC_TRACK_TITLES else title
+    parts = [x.strip().casefold() for x in title.split(" / ")]
+    return "" if all(x in GENERIC_TRACK_TITLES for x in parts) else title
 
 
 def _language(track) -> str:
@@ -206,6 +210,27 @@ def _channels(track) -> str:
         layout = ""
     parts = [n for n in (CHANNEL_NAMES.get(count), layout) if n]
     return f"{count} ({', '.join(parts)})" if parts else str(count)
+
+
+RANGES = {"Limited": "ограниченный диапазон", "Full": "полный диапазон"}
+
+
+def _colour(track) -> str:
+    """«BT.709, ограниченный диапазон»; передаточная функция и матрица — если отличаются."""
+    primaries = _first(track.color_primaries or track.colour_primaries)
+    if not primaries:
+        return ""
+    parts = [primaries]
+    transfer = _first(track.transfer_characteristics)
+    if transfer and transfer != primaries:
+        parts.append(f"передаточная функция {transfer}")
+    matrix = _first(track.matrix_coefficients)
+    if matrix and matrix != primaries:
+        parts.append(f"матрица {matrix}")
+    colour_range = _first(track.color_range or track.colour_range)
+    if colour_range:
+        parts.append(RANGES.get(colour_range, colour_range))
+    return ", ".join(parts)
 
 
 def _video_track(track, n: int) -> Track:
@@ -230,7 +255,7 @@ def _video_track(track, n: int) -> Track:
         add("bit_depth", "Разрядность цвета", f"{track.bit_depth} бит", track.bit_depth)
     add("chroma_subsampling", "Субдискретизация цвета", _first(track.chroma_subsampling))
     add("color_space", "Цветовая модель", _first(track.color_space))
-    add("colour_primaries", "Основные цвета", _first(track.colour_primaries))
+    add("colour", "Цветовой стандарт", _colour(track))
     add("compression_mode", "Метод сжатия", _compression(track))
     duration = _num(track.duration)
     if duration:
@@ -282,28 +307,76 @@ def _adder(track: Track):
     return add
 
 
-def _wave_puid(path: Path) -> str:
-    """Уточняет идентификатор PRONOM для WAVE по заголовку файла."""
+def _bext_text(data: bytes) -> str:
+    raw = data.split(b"\x00", 1)[0].strip()
+    try:
+        return raw.decode("utf-8").strip()
+    except UnicodeDecodeError:
+        return raw.decode("cp1251", "replace").strip()
+
+
+def _wave_info(path: Path) -> tuple[str, dict]:
+    """Идентификатор PRONOM для WAVE и поля блока bext (Broadcast WAVE, EBU Tech 3285):
+    описание, устройство или программа записи, дата и время записи, история кодирования."""
     try:
         with open(path, "rb") as f:
             head = f.read(64 * 1024)
     except OSError:
-        return ""
+        return "", {}
     if head[:4] not in (b"RIFF",) or head[8:12] != b"WAVE":
-        return ""
-    pos, fmt_size, bext_version = 12, None, None
+        return "", {}
+    pos, fmt_size, bext = 12, None, None
     while pos + 8 <= len(head):
         chunk_id = head[pos:pos + 4]
         size = int.from_bytes(head[pos + 4:pos + 8], "little")
         if chunk_id == b"fmt ":
             fmt_size = size
         elif chunk_id == b"bext" and pos + 8 + 348 <= len(head):
-            bext_version = str(int.from_bytes(head[pos + 8 + 346:pos + 8 + 348], "little"))
+            data = head[pos + 8:pos + 8 + size]
+            bext = {
+                "version": str(int.from_bytes(data[346:348], "little")),
+                "description": _bext_text(data[0:256]),
+                "originator": _bext_text(data[256:288]),
+                "originator_reference": _bext_text(data[288:320]),
+                "date": _bext_text(data[320:330]),
+                "time": _bext_text(data[330:338]),
+                "coding_history": _bext_text(data[602:]) if len(data) > 602 else "",
+            }
         pos += 8 + size + (size & 1)
-    if bext_version is not None:
-        return formats.BWF_VERSIONS.get(bext_version, "")
+    if bext is not None:
+        return formats.BWF_VERSIONS.get(bext["version"], ""), bext
     kind = {16: "PCMWAVEFORMAT", 18: "WAVEFORMATEX", 40: "WAVEFORMATEXTENSIBLE"}.get(fmt_size or 0)
-    return formats.WAVE_KINDS.get(kind, "")
+    return formats.WAVE_KINDS.get(kind, ""), {}
+
+
+def _mp4_opus_channels(path: Path) -> int | None:
+    """Число каналов Opus из блока dOps в MP4: MediaInfo его не сообщает."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            end = f.tell()
+            pos = 0
+            while pos + 8 <= end:
+                f.seek(pos)
+                header = f.read(16)
+                size, kind = int.from_bytes(header[:4], "big"), header[4:8]
+                if size == 1:
+                    size = int.from_bytes(header[8:16], "big")
+                elif size == 0:
+                    size = end - pos
+                if size < 8:
+                    return None
+                if kind == b"moov":
+                    if size > 64 * 1024 * 1024:
+                        return None
+                    f.seek(pos)
+                    moov = f.read(size)
+                    i = moov.find(b"dOps")
+                    return moov[i + 5] if i >= 0 and i + 5 < len(moov) and moov[i + 5] else None
+                pos += size
+    except OSError:
+        return None
+    return None
 
 
 def probe(path: Path, result: ProbeResult) -> ProbeResult:
@@ -330,6 +403,15 @@ def probe(path: Path, result: ProbeResult) -> ProbeResult:
         result.warnings.append("MediaInfo не распознал формат файла.")
         return result
 
+    wave_puid, bext = ("", {})
+    if path.suffix.lower() in (".wav", ".bwf"):
+        wave_puid, bext = _wave_info(path)
+        if bext:
+            result.format_name = f"Broadcast WAVE (BWF), версия {bext['version']}"
+    for track in audios:
+        if not track.channel_s and _first(track.format) == "Opus" and _first(general.format if general else "") == "MPEG-4":
+            track.channel_s = _mp4_opus_channels(path)
+
     if general is not None:
         container = _first(general.format)
         if container:
@@ -351,7 +433,17 @@ def probe(path: Path, result: ProbeResult) -> ProbeResult:
         if general.recorded_date:
             result.add("recorded_date", "Дата записи", textfmt.any_date(_first(general.recorded_date)),
                        _first(general.recorded_date))
-        if general.encoded_date:
+        if bext:
+            # BWF: дата и время записи из блока bext (MediaInfo выдаёт их же как дату кодирования)
+            recorded = " ".join(x for x in (bext["date"], bext["time"]) if x)
+            if recorded:
+                result.content_created = textfmt.any_date(recorded)
+                result.add("bwf_date", "Дата и время записи (BWF)", textfmt.any_date(recorded), recorded)
+            result.add("bwf_originator", "Устройство или программа записи (BWF)", bext["originator"])
+            result.add("bwf_reference", "Идентификатор записи (BWF)", bext["originator_reference"])
+            result.add("bwf_description", "Описание (BWF)", bext["description"])
+            result.add("bwf_coding_history", "История кодирования (BWF)", bext["coding_history"])
+        elif general.encoded_date:
             result.add("encoded_date", "Дата кодирования", textfmt.any_date(_first(general.encoded_date)),
                        _first(general.encoded_date))
         # Описательные теги внутри файла (ID3, Vorbis comments, MP4) — как записаны
@@ -396,6 +488,6 @@ def probe(path: Path, result: ProbeResult) -> ProbeResult:
     if any(_first(t.frame_rate_mode) == "VFR" for t in videos):
         result.notes.append("Переменная частота кадров: при конвертации возможен рассинхрон звука и изображения.")
 
-    if path.suffix.lower() in (".wav", ".bwf"):
-        result.puid = _wave_puid(path)
+    if wave_puid:
+        result.puid = wave_puid
     return result

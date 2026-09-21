@@ -110,16 +110,29 @@
 ### Свойства (`Property/@key`) по видам файлов
 
 * **Видео:** `duration`, `resolution`, `video_bit_rate`, `video_codec`,
-  `frame_rate`, `container`, `overall_bit_rate`, `encoded_date`, `recorded_date`;
+  `frame_rate`, `container`, `overall_bit_rate`, `encoded_date`, `recorded_date`,
+  `writing_application`, теги файла `tag_track_name`, `tag_performer`,
+  `tag_composer`, `tag_album`, `tag_track_name_position`, `tag_genre`,
+  `tag_comment`, `tag_copyright`;
   в `Track` видео — `codec`, `resolution`, `display_aspect_ratio`, `bit_rate`,
   `bit_rate_mode`, `frame_rate`, `frame_rate_mode`, `scan_type`, `bit_depth`,
-  `chroma_subsampling`, `color_space`, `compression_mode`, `language`;
+  `chroma_subsampling`, `color_space`, `colour` (цветовой стандарт, например
+  «BT.709, ограниченный диапазон»), `compression_mode`, `language`, `title`;
   в `Track` аудио — `codec`, `bit_rate`, `channels`, `channel_positions`,
-  `sampling_rate`, `bit_depth`, `compression_mode`, `language`.
-* **Аудио:** `duration`, `container`, `overall_bit_rate` и дорожки, как у видео.
+  `sampling_rate`, `bit_depth`, `compression_mode`, `language`, `title`.
+* **Аудио:** `duration`, `container`, `overall_bit_rate`, теги файла и дорожки,
+  как у видео. У Broadcast WAVE — поля блока `bext`: `bwf_date` (дата и время
+  записи), `bwf_originator` (устройство или программа записи), `bwf_reference`,
+  `bwf_description`, `bwf_coding_history`.
 * **Изображение:** `compression` (с потерями / без потерь / без сжатия + метод),
   `pixel_size`, `resolution` (точек на дюйм), `print_size`, `color_mode`,
-  `bit_depth`, `icc_profile`, `frames`, `camera`, `exif_date`.
+  `bit_depth`, `icc_profile`, `frames`; из EXIF, XMP и IPTC — `author`,
+  `copyright`, `title`, `description`, `keywords`, `camera`, `camera_serial`,
+  `lens`, `exposure` (выдержка, диафрагма, ISO, фокусное расстояние),
+  `exif_date`, `xmp_date` (дата создания из XMP, если нет даты съёмки — например,
+  у скана), `gps` (`@raw` — широта и долгота в градусах), `software`
+  (программа создания или обработки), `original_name` (исходное имя файла,
+  которое сохранил Lightroom, — связь с RAW-оригиналом).
 * **Текст:** `encoding`, `language`, `characters` (знаков с пробелами и без),
   `words`, `lines`, `pages`, `slides`, `sheets`, `pdf_version`, `pdfa`,
   `text_layer`, `application`, `doc_created`.

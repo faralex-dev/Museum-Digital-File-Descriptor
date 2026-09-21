@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import io
+import re
 from pathlib import Path
 
 from .. import formats, textfmt
 from ..model import ProbeResult
+from . import embedded
 
 try:
     from PIL import Image, ImageCms
@@ -213,29 +215,45 @@ def _probe_raw(path: Path, result: ProbeResult) -> bool:
 
 
 TAG_LENS_MODEL, TAG_EXPOSURE, TAG_FNUMBER, TAG_ISO = 0xA434, 0x829A, 0x829D, 0x8827
+TAG_DESCRIPTION, TAG_SOFTWARE, TAG_ARTIST, TAG_COPYRIGHT = 0x010E, 0x0131, 0x013B, 0x8298
+TAG_FOCAL_LENGTH, TAG_BODY_SERIAL, TAG_LENS_SPEC, TAG_MAKERNOTE = 0x920A, 0xA431, 0xA432, 0x927C
+TAG_XMP, TAG_IPTC, GPS_IFD = 700, 0x83BB, 0x8825
+
+# Подписи, которые камеры ставят вместо описания снимка
+GENERIC_DESCRIPTIONS = {"olympus digital camera", "sony dsc", "digital camera", "konica minolta digital camera",
+                        "minolta dsc", "samsung", "default", "exif_jpeg_picture", "lg digital camera",
+                        "camera", "image", "picture"}
 
 
-def read_tiff_exif(path: Path) -> tuple[dict, dict]:
-    """EXIF из файла, устроенного как TIFF (ARW, NEF, CR2, DNG, PEF и др.),
-    без декодирования изображения. Нужен, когда Pillow сам файл не открывает.
-    Возвращает (IFD0, EXIF IFD)."""
+def read_tiff_ifds(path: Path) -> tuple[dict, dict, dict]:
+    """IFD0, EXIF и GPS из файла, устроенного как TIFF (ARW, NEF, CR2, DNG, PEF и др.),
+    без декодирования изображения. Нужен, когда Pillow сам файл не открывает."""
     from PIL import TiffImagePlugin
 
     def load(f, header, offset):
         ifd = TiffImagePlugin.ImageFileDirectory_v2(header)
         f.seek(offset)
         ifd.load(f)
-        return ifd
+        return dict(ifd)
 
     with open(path, "rb") as f:
         header = f.read(8)
         if header[:4] not in (b"II*\x00", b"MM\x00*"):
-            return {}, {}
+            return {}, {}, {}
         ifd0 = load(f, header, int.from_bytes(header[4:8], "little" if header[:2] == b"II" else "big"))
-        exif_ifd = {}
-        if 0x8769 in ifd0:
-            exif_ifd = load(f, header, int(ifd0[0x8769]))
-    return dict(ifd0), dict(exif_ifd)
+        exif_ifd = load(f, header, int(ifd0[EXIF_IFD])) if EXIF_IFD in ifd0 else {}
+        gps = {}
+        if GPS_IFD in ifd0:
+            try:
+                gps = load(f, header, int(ifd0[GPS_IFD]))
+            except Exception:  # noqa: BLE001 - координаты не обязательны
+                gps = {}
+    return ifd0, exif_ifd, gps
+
+
+def read_tiff_exif(path: Path) -> tuple[dict, dict]:
+    """(IFD0, EXIF IFD) — см. read_tiff_ifds."""
+    return read_tiff_ifds(path)[:2]
 
 
 def camera_name(make: str, model: str) -> str:
@@ -247,10 +265,125 @@ def camera_name(make: str, model: str) -> str:
     return " ".join(x for x in (make, model) if x)
 
 
-def _add_camera_info(result: ProbeResult, ifd0: dict, exif_ifd: dict) -> None:
+def _exif_string(value) -> str:
+    """Строка EXIF. Pillow читает её как latin-1, а русские программы пишут UTF-8."""
+    if isinstance(value, bytes):
+        value = value.decode("latin-1")
+    text = str(value).strip("\x00 ").strip()
+    if any(ord(c) > 127 for c in text):
+        try:
+            text = text.encode("latin-1").decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass
+    return text
+
+
+def _nikon_makernote(exif_ifd: dict) -> dict:
+    """Служебные теги Nikon (формат «Nikon\\0\\x02»): там ISO, объектив и серийный номер,
+    которых в EXIF старых камер нет."""
+    data = exif_ifd.get(TAG_MAKERNOTE)
+    if not isinstance(data, bytes) or not data.startswith(b"Nikon\x00\x02") or len(data) < 18:
+        return {}
+    from PIL import TiffImagePlugin
+    body = data[10:]
+    if body[:4] not in (b"II*\x00", b"MM\x00*"):
+        return {}
+    ifd = TiffImagePlugin.ImageFileDirectory_v2(body[:8])
+    stream = io.BytesIO(body)
+    stream.seek(int.from_bytes(body[4:8], "little" if body[:2] == b"II" else "big"))
+    try:
+        ifd.load(stream)
+    except Exception:  # noqa: BLE001
+        return {}
+    return dict(ifd)
+
+
+def _nikon_iso(note: dict):
+    iso = note.get(0x0002)
+    if isinstance(iso, tuple) and len(iso) > 1 and iso[1]:
+        return iso[1]
+    info = note.get(0x0025)
+    if isinstance(info, bytes) and info and info[0]:
+        return round(100 * 2 ** (info[0] / 12 - 5))
+    return None
+
+
+def _lens_from_spec(spec) -> str:
+    """(24, 70, 2.8, 2.8) -> «24–70 мм f/2,8»."""
+    try:
+        low, high, ap_low, ap_high = (float(x) for x in spec[:4])
+    except (TypeError, ValueError):
+        return ""
+    if not low or low != low:
+        return ""
+
+    def num(x):
+        return textfmt._trim(textfmt.decimal(x, 1))
+    text = f"{num(low)} мм" if not high or high == low or high != high else f"{num(low)}–{num(high)} мм"
+    if ap_low and ap_low == ap_low:
+        aperture = num(ap_low)
+        if ap_high and ap_high == ap_high and ap_high != ap_low:
+            aperture += f"–{num(ap_high)}"
+        text += f" f/{aperture}"
+    return text
+
+
+def _gps_text(gps: dict) -> tuple[str, str]:
+    def degrees(value):
+        d, m, s = (float(x) for x in value)
+        return d + m / 60 + s / 3600
+    try:
+        lat, lon = degrees(gps[2]), degrees(gps[4])
+    except (KeyError, TypeError, ValueError):
+        return "", ""
+    if lat != lat or lon != lon or (lat == 0 and lon == 0):
+        return "", ""
+    south = _exif_string(gps.get(1, "N")).upper() == "S"
+    west = _exif_string(gps.get(3, "E")).upper() == "W"
+    text = (f"{textfmt.decimal(lat, 6)}° {'ю' if south else 'с'}. ш., "
+            f"{textfmt.decimal(lon, 6)}° {'з' if west else 'в'}. д.")
+    return text, f"{-lat if south else lat:.6f},{-lon if west else lon:.6f}"
+
+
+def _first_value(*candidates) -> str:
+    for value in candidates:
+        if isinstance(value, list):
+            value = "; ".join(dict.fromkeys(v for v in value if v))
+        if value:
+            return value
+    return ""
+
+
+def _add_camera_info(result: ProbeResult, ifd0: dict, exif_ifd: dict,
+                     gps: dict | None = None, xmp: dict | None = None, iptc: dict | None = None) -> None:
+    xmp, iptc, gps = xmp or {}, iptc or {}, gps or {}
+    note = _nikon_makernote(exif_ifd)
+
+    # Сведения об авторе и содержании снимка — как их записал фотограф
+    result.add("author", "Автор (по метаданным файла)",
+               _first_value(_exif_string(ifd0.get(TAG_ARTIST, "")), xmp.get("dc:creator"), iptc.get("by_line")))
+    result.add("copyright", "Авторские права (по метаданным файла)",
+               _first_value(_exif_string(ifd0.get(TAG_COPYRIGHT, "")), xmp.get("dc:rights"), iptc.get("copyright")))
+    result.add("title", "Название (по метаданным файла)", _first_value(xmp.get("dc:title"), iptc.get("object_name")))
+    description = _exif_string(ifd0.get(TAG_DESCRIPTION, ""))
+    if description.casefold() in GENERIC_DESCRIPTIONS:
+        description = ""
+    result.add("description", "Описание (по метаданным файла)",
+               _first_value(description, xmp.get("dc:description"), iptc.get("caption")))
+    result.add("keywords", "Ключевые слова", _first_value(xmp.get("dc:subject"), iptc.get("keywords")))
+
     result.add("camera", "Камера / сканер",
-               camera_name(_exif_text(ifd0.get(TAG_MAKE, "")), _exif_text(ifd0.get(TAG_MODEL, ""))))
-    result.add("lens", "Объектив", _exif_text(exif_ifd.get(TAG_LENS_MODEL, "")))
+               camera_name(_exif_string(ifd0.get(TAG_MAKE, "")), _exif_string(ifd0.get(TAG_MODEL, ""))))
+    result.add("camera_serial", "Серийный номер камеры",
+               _first_value(_exif_string(exif_ifd.get(TAG_BODY_SERIAL, "")), xmp.get("aux:SerialNumber"),
+                            _exif_string(note.get(0x001D, ""))))
+    # aux:Lens у Nikon — лишь диапазон «24.0-85.0 mm f/3.5-4.5»; тогда понятнее запись по спецификации
+    aux_lens = _first_value(xmp.get("aux:Lens"))
+    spec_like = bool(re.match(r"^[\d.]+(?:-[\d.]+)?\s*mm\b", aux_lens))
+    result.add("lens", "Объектив",
+               _first_value(_exif_string(exif_ifd.get(TAG_LENS_MODEL, "")), xmp.get("exifEX:LensModel"),
+                            "" if spec_like else aux_lens, _lens_from_spec(exif_ifd.get(TAG_LENS_SPEC)),
+                            _lens_from_spec(note.get(0x0084)), aux_lens))
     parts = []
     exposure = exif_ifd.get(TAG_EXPOSURE)
     if exposure:
@@ -259,16 +392,43 @@ def _add_camera_info(result: ProbeResult, ifd0: dict, exif_ifd: dict) -> None:
     fnumber = exif_ifd.get(TAG_FNUMBER)
     if fnumber:
         parts.append(f"f/{textfmt._trim(textfmt.decimal(float(fnumber), 1))}")
-    iso = exif_ifd.get(TAG_ISO)
+    iso = exif_ifd.get(TAG_ISO) or _nikon_iso(note)
     if iso:
         parts.append(f"ISO {iso[0] if isinstance(iso, tuple) else iso}")
+    focal = exif_ifd.get(TAG_FOCAL_LENGTH)
+    if focal and float(focal) == float(focal) and float(focal) > 0:
+        parts.append(f"{textfmt._trim(textfmt.decimal(float(focal), 1))} мм")
     result.add("exposure", "Параметры съёмки", ", ".join(parts))
+
     original = exif_ifd.get(TAG_DATETIME_ORIGINAL)
+    xmp_created = _first_value(xmp.get("xmp:CreateDate"), xmp.get("photoshop:DateCreated"))
     taken = original or ifd0.get(TAG_DATETIME)
     if taken:
         label = "Дата съёмки (EXIF)" if original else "Дата изменения (EXIF)"
         result.add("exif_date", label, _exif_date(taken), _exif_text(taken))
         result.content_created = _exif_date(taken)
+    if not original and xmp_created:
+        # Снимок без даты съёмки (например, скан): дата создания из XMP раньше даты изменения
+        result.add("xmp_date", "Дата создания (XMP)", textfmt.any_date(xmp_created), xmp_created)
+        result.content_created = textfmt.any_date(xmp_created)
+    coords, raw = _gps_text(gps)
+    result.add("gps", "Координаты съёмки (GPS)", coords, raw or None)
+
+    result.add("software", "Программа создания или обработки",
+               _first_value(_exif_string(ifd0.get(TAG_SOFTWARE, "")), xmp.get("xmp:CreatorTool")))
+    result.add("original_name", "Исходное имя файла", _first_value(xmp.get("xmpMM:PreservedFileName")))
+
+
+def _embedded(img, tags) -> tuple[dict, dict]:
+    """XMP и IPTC из открытого в Pillow изображения."""
+    packet = img.info.get("xmp") or img.info.get("XML:com.adobe.xmp") or tags.get(TAG_XMP)
+    xmp = embedded.parse_xmp(packet)
+    try:
+        from PIL import IptcImagePlugin
+        iptc = embedded.parse_iptc(IptcImagePlugin.getiptcinfo(img))
+    except Exception:  # noqa: BLE001 - повреждённый блок IPTC не мешает описанию
+        iptc = {}
+    return xmp, iptc
 
 
 def probe(path: Path, result: ProbeResult) -> ProbeResult:
@@ -285,7 +445,8 @@ def probe(path: Path, result: ProbeResult) -> ProbeResult:
         if raw_done:
             # Pillow не открывает многие RAW (например, Sony ARW), но EXIF в них — обычный TIFF
             try:
-                _add_camera_info(result, *read_tiff_exif(path))
+                ifd0, exif_ifd, gps = read_tiff_ifds(path)
+                _add_camera_info(result, ifd0, exif_ifd, gps, embedded.parse_xmp(ifd0.get(TAG_XMP)))
             except Exception:  # noqa: BLE001 - без EXIF описание всё равно полное
                 pass
         if not raw_done:
@@ -394,6 +555,9 @@ def probe(path: Path, result: ProbeResult) -> ProbeResult:
             result.format_version = version
             result.puid = DNG_VERSIONS.get(version, "")
 
-        if exif:
-            _add_camera_info(result, dict(exif), dict(exif_ifd) if exif_ifd else {})
+        xmp, iptc = _embedded(img, tags)
+        if exif or xmp or iptc:
+            gps = exif.get_ifd(GPS_IFD) if exif else {}
+            _add_camera_info(result, dict(exif) if exif else {}, dict(exif_ifd) if exif_ifd else {},
+                             dict(gps) if gps else {}, xmp, iptc)
     return result

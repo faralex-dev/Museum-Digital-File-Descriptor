@@ -105,8 +105,9 @@ def plural(n: int, one: str, few: str, many: str) -> str:
     return many
 
 
+# Время бывает и через дефис: «2025-04-24 19-06-17» (BWF от REAPER)
 _ISO_RE = re.compile(
-    r"(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?)?\s*(Z|UTC|[+-]\d{2}:?\d{2})?"
+    r"(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2})([:-])(\d{2})(?:\5(\d{2}))?(?:\.\d+)?)?\s*(Z|UTC|[+-]\d{2}:?\d{2})?"
 )
 
 
@@ -124,7 +125,7 @@ def any_date(value) -> str:
     match = _ISO_RE.match(text)
     if not match:
         return text
-    y, mo, d, h, mi, s, tz = match.groups()
+    y, mo, d, h, _, mi, s, tz = match.groups()
     out = f"{d}.{mo}.{y}"
     if h is not None:
         out += f" {h}:{mi}:{s or '00'}"

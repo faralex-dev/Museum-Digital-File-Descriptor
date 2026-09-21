@@ -326,3 +326,195 @@ def test_raw_exif_when_pillow_cannot_open(tmp_path, monkeypatch):
 def test_camera_name(make, model, expected):
     from mdfd.probes.image import camera_name
     assert camera_name(make, model) == expected
+
+
+XMP_PACKET = """<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about="" xmlns:xmpMM="http://ns.adobe.com/xap/1.0/mm/"
+     xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmlns:dc="http://purl.org/dc/elements/1.1/"
+     xmpMM:PreservedFileName="DSC_0833.NEF" xmp:CreatorTool="Adobe Photoshop Lightroom Classic 14.0.1">
+   <dc:title><rdf:Alt><rdf:li xml:lang="x-default">Концерт в Доме радио</rdf:li></rdf:Alt></dc:title>
+   <dc:subject><rdf:Bag><rdf:li>концерт</rdf:li><rdf:li>хор</rdf:li></rdf:Bag></dc:subject>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>"""
+
+
+def _jpeg_with_metadata(path):
+    """JPEG с EXIF (автор, права, программа, серийный номер, GPS) и XMP."""
+    import io
+    from PIL import Image
+    exif = Image.Exif()
+    exif[0x010F], exif[0x0110] = "NIKON CORPORATION", "NIKON Z 8"
+    exif[0x013B] = "Александр Фарукшин".encode("utf-8")  # программы пишут в EXIF UTF-8
+    exif[0x8298] = "ГМИГ".encode("utf-8")
+    exif[0x0131] = "Adobe Photoshop Lightroom Classic 14.0.1 (Macintosh)"
+    exif[0x010E] = "SONY DSC"  # подпись камеры, не описание
+    sub = exif.get_ifd(0x8769)
+    sub[0x9003] = "2025:01:25 19:00:09"
+    sub[0xA431] = "7806606"
+    sub[0x920A] = 240.0
+    gps = exif.get_ifd(0x8825)
+    gps[1], gps[2], gps[3], gps[4] = "N", (55.0, 45.0, 0.0), "E", (37.0, 37.0, 12.0)
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), "white").save(buf, "JPEG", exif=exif.tobytes())
+    data = buf.getvalue()
+    payload = b"http://ns.adobe.com/xap/1.0/\x00" + XMP_PACKET.encode("utf-8")
+    app1 = b"\xff\xe1" + (len(payload) + 2).to_bytes(2, "big") + payload
+    path.write_bytes(data[:2] + app1 + data[2:])
+
+
+def test_image_author_keywords_gps_from_exif_and_xmp(tmp_path):
+    path = tmp_path / "снимок.jpg"
+    _jpeg_with_metadata(path)
+    r, p = props_at(path)
+    assert r.warnings == []
+    assert p["author"] == "Александр Фарукшин"
+    assert p["copyright"] == "ГМИГ"
+    assert p["title"] == "Концерт в Доме радио"
+    assert "description" not in p
+    assert p["keywords"] == "концерт; хор"
+    assert p["camera"] == "NIKON Z 8"
+    assert p["camera_serial"] == "7806606"
+    assert p["exposure"] == "240 мм"
+    assert p["gps"] == "55,750000° с. ш., 37,620000° в. д."
+    assert p["software"] == "Adobe Photoshop Lightroom Classic 14.0.1 (Macintosh)"
+    assert p["original_name"] == "DSC_0833.NEF"
+
+
+def test_xmp_old_xap_format_and_bad_packet():
+    from mdfd.probes.embedded import parse_xmp
+    old = """<x:xapmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>
+      <rdf:Description about='' xmlns:xap='http://ns.adobe.com/xap/1.0/'>
+       <xap:CreateDate>2006-05-27T20:57:35+03:00</xap:CreateDate>
+       <xap:CreatorTool>Adobe Photoshop CS Windows</xap:CreatorTool>
+      </rdf:Description></rdf:RDF></x:xapmeta>"""
+    x = parse_xmp(old)
+    assert x["xmp:CreateDate"] == ["2006-05-27T20:57:35+03:00"]
+    assert x["xmp:CreatorTool"] == ["Adobe Photoshop CS Windows"]
+    assert parse_xmp(b"<x:xmpmeta><broken") == {}
+    assert parse_xmp('<!DOCTYPE x [<!ENTITY a "b">]><rdf:RDF/>') == {}
+
+
+def test_iptc_utf8_and_cp1251():
+    from mdfd.probes.embedded import parse_iptc
+    assert parse_iptc({(1, 90): b"\x1b%G", (2, 80): "Фотограф".encode("utf-8"),
+                       (2, 25): [b"a", b"b"]}) == {"by_line": ["Фотограф"], "keywords": ["a", "b"]}
+    assert parse_iptc({(2, 116): "Музей".encode("cp1251")}) == {"copyright": ["Музей"]}
+
+
+def _nikon_makernote():
+    """Служебный блок Nikon: объектив (0x0084), серийный номер (0x001D), ISO (0x0025)."""
+    import struct
+    entries, blobs = [], b""
+    count = 3
+    data_off = 8 + 2 + count * 12 + 4
+    lens = b"".join(struct.pack(">II", int(v * 10), 10) for v in (24, 70, 2.8, 2.8))
+    entries.append(struct.pack(">HHI", 0x001D, 2, 8) + struct.pack(">I", data_off))
+    blobs += b"2061922\0"
+    entries.append(struct.pack(">HHI", 0x0025, 7, 4) + bytes([60, 1, 12, 0]))
+    entries.append(struct.pack(">HHI", 0x0084, 5, 4) + struct.pack(">I", data_off + 8))
+    blobs += lens
+    tiff = b"MM\0*" + struct.pack(">I", 8) + struct.pack(">H", count) + b"".join(entries) + b"\0\0\0\0" + blobs
+    return b"Nikon\0\x02\x11\0\0" + tiff
+
+
+def test_nikon_makernote_lens_iso_serial():
+    from mdfd.probes import image
+    note = image._nikon_makernote({0x927C: _nikon_makernote()})
+    assert image._nikon_iso(note) == 100
+    assert image._lens_from_spec(note[0x0084]) == "24–70 мм f/2,8"
+    assert note[0x001D] == "2061922"
+    r = formats  # noqa: F841
+    from mdfd.model import ProbeResult
+    result = ProbeResult(category=formats.IMAGE)
+    image._add_camera_info(result, {0x010F: "NIKON CORPORATION", 0x0110: "NIKON D3S"},
+                           {0x829A: 0.005, 0x829D: 16.0, 0x927C: _nikon_makernote()})
+    p = {x.key: x.text for x in result.props}
+    assert p["lens"] == "24–70 мм f/2,8"
+    assert p["exposure"] == "1/200 с, f/16, ISO 100"
+    assert p["camera_serial"] == "2061922"
+
+
+@pytest.mark.parametrize("spec,expected", [
+    ((50, 50, float("nan"), float("nan")), "50 мм"),
+    ((24, 85, 3.5, 4.5), "24–85 мм f/3,5–4,5"),
+    ((0, 0, 0, 0), ""),
+    (None, ""),
+])
+def test_lens_from_spec(spec, expected):
+    from mdfd.probes.image import _lens_from_spec
+    assert _lens_from_spec(spec) == expected
+
+
+def _bwf(path, originator=b"ZOOM Handy Recorder H6", version=1):
+    import struct
+    bext = bytearray(602)
+    bext[0:16] = "Интервью".encode("utf-8")
+    bext[256:256 + len(originator)] = originator
+    bext[320:330] = b"2025-04-24"
+    bext[330:338] = b"19-06-17"
+    bext[346:348] = struct.pack("<H", version)
+    bext += b"A=PCM,F=48000,W=16,M=mono\r\n"
+    fmt = struct.pack("<HHIIHH", 1, 1, 48000, 96000, 2, 16)
+    data = b"\0\0" * 4800
+    body = b"WAVE" + b"bext" + struct.pack("<I", len(bext)) + bytes(bext)
+    body += b"fmt " + struct.pack("<I", len(fmt)) + fmt + b"data" + struct.pack("<I", len(data)) + data
+    path.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+
+
+def test_broadcast_wave_bext(tmp_path):
+    path = tmp_path / "запись.wav"
+    _bwf(path)
+    r, p = props_at(path)
+    assert r.format_name == "Broadcast WAVE (BWF), версия 1"
+    assert r.puid == "fmt/2"
+    assert p["bwf_originator"] == "ZOOM Handy Recorder H6"
+    assert p["bwf_date"] == "24.04.2025 19:06:17"
+    assert p["bwf_description"] == "Интервью"
+    assert p["bwf_coding_history"] == "A=PCM,F=48000,W=16,M=mono"
+    assert "encoded_date" not in p
+    assert r.content_created == "24.04.2025 19:06:17"
+
+
+def test_date_with_hyphenated_time():
+    assert textfmt.any_date("2025-04-24 19-06-17") == "24.04.2025 19:06:17"
+    assert textfmt.any_date("2025-04-24 19:06:17 UTC") == "24.04.2025 19:06:17 (UTC)"
+    assert textfmt.any_date("2025-04-24-03:00") == "24.04.2025 (UTC-03:00)"
+
+
+class _Track:
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+    def __getattr__(self, name):
+        return None
+
+
+def test_generic_track_titles_and_colour():
+    from mdfd.probes.media import _colour, _track_title
+    assert _track_title(_Track(title="Stereo / Stereo")) == ""
+    assert _track_title(_Track(title="Core Media Audio")) == ""
+    assert _track_title(_Track(title="Комментарий режиссёра")) == "Комментарий режиссёра"
+    assert _colour(_Track(color_primaries="BT.709", transfer_characteristics="BT.709",
+                          matrix_coefficients="BT.709", color_range="Limited")) == "BT.709, ограниченный диапазон"
+    assert _colour(_Track(color_primaries="BT.709", transfer_characteristics="xvYCC")) == \
+        "BT.709, передаточная функция xvYCC"
+    assert _colour(_Track()) == ""
+
+
+def test_opus_channels_in_mp4(tmp_path):
+    import struct
+    from mdfd.probes.media import _mp4_opus_channels
+
+    def box(kind, payload):
+        return struct.pack(">I", 8 + len(payload)) + kind + payload
+    dops = box(b"dOps", bytes([0, 2]) + b"\0" * 9)
+    moov = box(b"moov", box(b"trak", box(b"Opus", b"\0" * 28 + dops)))
+    path = tmp_path / "a.mp4"
+    path.write_bytes(box(b"ftyp", b"mp42\0\0\0\0") + box(b"mdat", b"\0" * 100) + moov)
+    assert _mp4_opus_channels(path) == 2
+    path.write_bytes(box(b"ftyp", b"mp42\0\0\0\0") + box(b"mdat", b"\0" * 10))
+    assert _mp4_opus_channels(path) is None
