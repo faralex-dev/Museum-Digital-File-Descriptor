@@ -14,9 +14,11 @@ from .xmlio import atomic_write
 
 # Порядок свойств в памятке — как в перечне внутримузейных правил.
 ORDER = {
-    formats.VIDEO: ["duration", "resolution", "video_bit_rate", "video_codec", "frame_rate"],
-    formats.AUDIO: ["duration"],
-    formats.IMAGE: ["compression", "pixel_size", "resolution"],
+    formats.VIDEO: ["duration", "resolution", "video_bit_rate", "video_codec", "frame_rate",
+                    "tag_track_name", "tag_performer"],
+    formats.AUDIO: ["duration", "tag_track_name", "tag_performer", "tag_composer", "tag_album",
+                    "tag_track_name_position"],
+    formats.IMAGE: ["compression", "pixel_size", "resolution", "camera", "exif_date"],
     formats.TEXT: ["encoding", "language", "characters", "pages", "slides", "sheets"],
 }
 # Подписи для аудиодорожки — как в перечне внутримузейных правил.

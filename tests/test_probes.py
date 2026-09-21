@@ -242,3 +242,75 @@ def test_media_with_cyrillic_path_without_locale(tmp_path):
         assert {p.key for p in r.props} >= {"duration", "resolution", "video_codec"}
     finally:
         locale.setlocale(locale.LC_CTYPE, saved)
+
+
+def test_audio_tags():
+    r, p = props("audio_tagged.flac")
+    assert p["tag_track_name"] == "Ария Il balen"
+    assert p["tag_performer"] == "Николай Шевелёв"
+    assert p["tag_track_name_position"] == "20"
+    assert p["tag_album"] == "Архив"
+
+
+def _tiff_with_exif(path):
+    """Минимальный TIFF с IFD0 и вложенным EXIF IFD, как в RAW-файлах камер
+    (Pillow при сохранении TIFF вложенный EXIF не пишет)."""
+    import struct
+    ascii_ = 2
+    data = bytearray()
+    blobs = []
+
+    def entry(tag, typ, count, value):
+        return struct.pack("<HHI", tag, typ, count) + value
+
+    def rational(num, den):
+        return struct.pack("<II", num, den)
+
+    # раскладка: заголовок(8) | IFD0 | EXIF IFD | данные
+    ifd0_tags = 3
+    exif_tags = 5
+    ifd0_off = 8
+    exif_off = ifd0_off + 2 + ifd0_tags * 12 + 4
+    data_off = exif_off + 2 + exif_tags * 12 + 4
+
+    def put(blob):
+        nonlocal data_off
+        off = data_off
+        blobs.append(blob)
+        data_off += len(blob)
+        return struct.pack("<I", off)
+
+    ifd0 = [
+        entry(0x010F, ascii_, 5, put(b"SONY\0")),
+        entry(0x0110, ascii_, 9, put(b"ILCE-9M2\0")),
+        entry(0x8769, 4, 1, struct.pack("<I", exif_off)),
+    ]
+    exif = [
+        entry(0x829A, 5, 1, put(rational(1, 250))),
+        entry(0x829D, 5, 1, put(rational(35, 10))),
+        entry(0x8827, 3, 1, struct.pack("<HH", 640, 0)),
+        entry(0x9003, ascii_, 20, put(b"2025:03:06 14:24:12\0")),
+        entry(0xA434, ascii_, 19, put(b"FE 24-70mm F2.8 GM\0")),
+    ]
+    data += b"II*\0" + struct.pack("<I", ifd0_off)
+    data += struct.pack("<H", ifd0_tags) + b"".join(ifd0) + b"\0\0\0\0"
+    data += struct.pack("<H", exif_tags) + b"".join(exif) + b"\0\0\0\0"
+    data += b"".join(blobs)
+    path.write_bytes(bytes(data))
+
+
+def test_raw_exif_when_pillow_cannot_open(tmp_path, monkeypatch):
+    """Sony ARW и др.: Pillow файл не открывает, EXIF читается напрямую из структуры TIFF."""
+    from mdfd.probes import image
+    path = tmp_path / "ЦНАР_43.1.arw"
+    _tiff_with_exif(path)
+
+    # имитируем RAW: rawpy файл прочитал, Pillow — нет
+    monkeypatch.setattr(image, "_probe_raw", lambda p, r: True)
+    monkeypatch.setattr(image.Image, "open", lambda *a, **k: (_ for _ in ()).throw(OSError("cannot identify")))
+    r, p = props_at(path)
+    assert p["camera"] == "SONY ILCE-9M2"
+    assert p["lens"] == "FE 24-70mm F2.8 GM"
+    assert p["exposure"] == "1/250 с, f/3,5, ISO 640"
+    assert p["exif_date"] == "06.03.2025 14:24:12"
+    assert r.content_created == "06.03.2025 14:24:12"

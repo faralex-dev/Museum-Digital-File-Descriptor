@@ -343,6 +343,13 @@ def probe(path: Path, result: ProbeResult) -> ProbeResult:
         if general.encoded_date:
             result.add("encoded_date", "Дата кодирования", textfmt.any_date(_first(general.encoded_date)),
                        _first(general.encoded_date))
+        # Описательные теги внутри файла (ID3, Vorbis comments, MP4) — как записаны
+        for key, label in (("track_name", "Название (тег файла)"), ("performer", "Исполнитель (тег файла)"),
+                           ("composer", "Композитор (тег файла)"), ("album", "Альбом (тег файла)"),
+                           ("track_name_position", "Номер дорожки (тег файла)"),
+                           ("genre", "Жанр (тег файла)"),
+                           ("comment", "Комментарий (тег файла)"), ("copyright", "Авторские права (тег файла)")):
+            result.add(f"tag_{key}", label, _first(getattr(general, key)))
         app = _first(general.writing_application) or _first(general.encoded_application)
         result.add("writing_application", "Программа записи", app)
         if general.encryption or any(t.encryption for t in videos + audios):

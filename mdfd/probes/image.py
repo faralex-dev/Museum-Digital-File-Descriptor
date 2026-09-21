@@ -212,6 +212,56 @@ def _probe_raw(path: Path, result: ProbeResult) -> bool:
         return False
 
 
+TAG_LENS_MODEL, TAG_EXPOSURE, TAG_FNUMBER, TAG_ISO = 0xA434, 0x829A, 0x829D, 0x8827
+
+
+def read_tiff_exif(path: Path) -> tuple[dict, dict]:
+    """EXIF из файла, устроенного как TIFF (ARW, NEF, CR2, DNG, PEF и др.),
+    без декодирования изображения. Нужен, когда Pillow сам файл не открывает.
+    Возвращает (IFD0, EXIF IFD)."""
+    from PIL import TiffImagePlugin
+
+    def load(f, header, offset):
+        ifd = TiffImagePlugin.ImageFileDirectory_v2(header)
+        f.seek(offset)
+        ifd.load(f)
+        return ifd
+
+    with open(path, "rb") as f:
+        header = f.read(8)
+        if header[:4] not in (b"II*\x00", b"MM\x00*"):
+            return {}, {}
+        ifd0 = load(f, header, int.from_bytes(header[4:8], "little" if header[:2] == b"II" else "big"))
+        exif_ifd = {}
+        if 0x8769 in ifd0:
+            exif_ifd = load(f, header, int(ifd0[0x8769]))
+    return dict(ifd0), dict(exif_ifd)
+
+
+def _add_camera_info(result: ProbeResult, ifd0: dict, exif_ifd: dict) -> None:
+    maker = " ".join(x for x in (_exif_text(ifd0.get(TAG_MAKE, "")), _exif_text(ifd0.get(TAG_MODEL, ""))) if x)
+    result.add("camera", "Камера / сканер", maker)
+    result.add("lens", "Объектив", _exif_text(exif_ifd.get(TAG_LENS_MODEL, "")))
+    parts = []
+    exposure = exif_ifd.get(TAG_EXPOSURE)
+    if exposure:
+        value = float(exposure)
+        parts.append(f"1/{round(1 / value)} с" if 0 < value < 1 else f"{textfmt._trim(textfmt.decimal(value, 1))} с")
+    fnumber = exif_ifd.get(TAG_FNUMBER)
+    if fnumber:
+        parts.append(f"f/{textfmt._trim(textfmt.decimal(float(fnumber), 1))}")
+    iso = exif_ifd.get(TAG_ISO)
+    if iso:
+        parts.append(f"ISO {iso[0] if isinstance(iso, tuple) else iso}")
+    result.add("exposure", "Параметры съёмки", ", ".join(parts))
+    original = exif_ifd.get(TAG_DATETIME_ORIGINAL)
+    taken = original or ifd0.get(TAG_DATETIME)
+    if taken:
+        label = "Дата съёмки (EXIF)" if original else "Дата изменения (EXIF)"
+        result.add("exif_date", label, _exif_date(taken), _exif_text(taken))
+        result.content_created = _exif_date(taken)
+
+
 def probe(path: Path, result: ProbeResult) -> ProbeResult:
     ext = path.suffix.lower().lstrip(".")
     raw_done = ext in RAW_EXTENSIONS and _probe_raw(path, result)
@@ -223,6 +273,12 @@ def probe(path: Path, result: ProbeResult) -> ProbeResult:
     try:
         img = Image.open(path)
     except Exception as exc:  # noqa: BLE001
+        if raw_done:
+            # Pillow не открывает многие RAW (например, Sony ARW), но EXIF в них — обычный TIFF
+            try:
+                _add_camera_info(result, *read_tiff_exif(path))
+            except Exception:  # noqa: BLE001 - без EXIF описание всё равно полное
+                pass
         if not raw_done:
             if ext in RAW_EXTENSIONS and rawpy is None:
                 result.warnings.append("Для RAW-файлов установите пакет rawpy.")
@@ -330,12 +386,5 @@ def probe(path: Path, result: ProbeResult) -> ProbeResult:
             result.puid = DNG_VERSIONS.get(version, "")
 
         if exif:
-            maker = " ".join(x for x in (_exif_text(exif.get(TAG_MAKE, "")), _exif_text(exif.get(TAG_MODEL, ""))) if x)
-            result.add("camera", "Камера / сканер", maker)
-            original = exif_ifd.get(TAG_DATETIME_ORIGINAL) if exif_ifd else None
-            taken = original or exif.get(TAG_DATETIME)
-            if taken:
-                label = "Дата съёмки (EXIF)" if original else "Дата изменения (EXIF)"
-                result.add("exif_date", label, _exif_date(taken), _exif_text(taken))
-                result.content_created = _exif_date(taken)
+            _add_camera_info(result, dict(exif), dict(exif_ifd) if exif_ifd else {})
     return result
