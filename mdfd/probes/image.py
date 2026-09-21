@@ -238,9 +238,18 @@ def read_tiff_exif(path: Path) -> tuple[dict, dict]:
     return dict(ifd0), dict(exif_ifd)
 
 
+def camera_name(make: str, model: str) -> str:
+    """«Canon» + «Canon EOS 6D» -> «Canon EOS 6D» (многие камеры повторяют производителя в модели)."""
+    make, model = make.strip(), model.strip()
+    first = make.split()[0].casefold() if make else ""
+    if first and model.casefold().startswith(first):
+        return model
+    return " ".join(x for x in (make, model) if x)
+
+
 def _add_camera_info(result: ProbeResult, ifd0: dict, exif_ifd: dict) -> None:
-    maker = " ".join(x for x in (_exif_text(ifd0.get(TAG_MAKE, "")), _exif_text(ifd0.get(TAG_MODEL, ""))) if x)
-    result.add("camera", "Камера / сканер", maker)
+    result.add("camera", "Камера / сканер",
+               camera_name(_exif_text(ifd0.get(TAG_MAKE, "")), _exif_text(ifd0.get(TAG_MODEL, ""))))
     result.add("lens", "Объектив", _exif_text(exif_ifd.get(TAG_LENS_MODEL, "")))
     parts = []
     exposure = exif_ifd.get(TAG_EXPOSURE)

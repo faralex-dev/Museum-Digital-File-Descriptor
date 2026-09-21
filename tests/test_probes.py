@@ -314,3 +314,15 @@ def test_raw_exif_when_pillow_cannot_open(tmp_path, monkeypatch):
     assert p["exposure"] == "1/250 с, f/3,5, ISO 640"
     assert p["exif_date"] == "06.03.2025 14:24:12"
     assert r.content_created == "06.03.2025 14:24:12"
+
+
+@pytest.mark.parametrize("make,model,expected", [
+    ("Canon", "Canon EOS 6D", "Canon EOS 6D"),
+    ("SONY", "ILCE-7M3", "SONY ILCE-7M3"),
+    ("NIKON CORPORATION", "NIKON D850", "NIKON D850"),
+    ("", "Scanner X", "Scanner X"),
+    ("Epson", "", "Epson"),
+])
+def test_camera_name(make, model, expected):
+    from mdfd.probes.image import camera_name
+    assert camera_name(make, model) == expected

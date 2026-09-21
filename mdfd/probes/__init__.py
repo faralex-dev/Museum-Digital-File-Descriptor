@@ -1,6 +1,7 @@
 """Анализ содержимого файлов: выбор модуля по виду файла."""
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 
 from .. import formats
@@ -25,26 +26,10 @@ def probe_file(path: Path) -> ProbeResult:
         notes=list(info.notes),
     )
     try:
-        if info.category in (formats.VIDEO, formats.AUDIO):
-            media.probe(path, result)
-        elif info.category == formats.IMAGE:
-            image.probe(path, result)
-            if not result.props and media.available():
-                # HEIC и другие форматы, которые Pillow не читает
-                media_result = ProbeResult(category=formats.IMAGE)
-                media.probe(path, media_result)
-                result.props.extend(media_result.props)
-        elif ext == ".pdf":
-            pdf.probe(path, result)
-        elif ext in OFFICE:
-            office.probe(path, result)
-        elif ext in PLAIN_TEXT:
-            text.probe(path, result)
-        elif info.category == formats.OTHER and media.available():
-            # Незнакомое расширение: вдруг это медиафайл
-            media.probe(path, result)
-            if result.category == formats.OTHER:
-                result.warnings.clear()
+        with warnings.catch_warnings():
+            # Pillow предупреждает о нестандартных тегах (например, IPTC в TIFF) — для описания это не важно
+            warnings.simplefilter("ignore")
+            _dispatch(path, ext, info, result)
     except Exception as exc:  # noqa: BLE001
         # полный путь в тексте ошибки только удлиняет сообщение
         message = str(exc).replace(str(path), path.name)
@@ -53,3 +38,26 @@ def probe_file(path: Path) -> ProbeResult:
     if result.puid and result.puid != info.puid:
         result.pronom_name = formats.PRONOM_NAMES.get(result.puid, "")
     return result
+
+
+def _dispatch(path: Path, ext: str, info, result: ProbeResult) -> None:
+    if info.category in (formats.VIDEO, formats.AUDIO):
+        media.probe(path, result)
+    elif info.category == formats.IMAGE:
+        image.probe(path, result)
+        if not result.props and media.available():
+            # HEIC и другие форматы, которые Pillow не читает
+            media_result = ProbeResult(category=formats.IMAGE)
+            media.probe(path, media_result)
+            result.props.extend(media_result.props)
+    elif ext == ".pdf":
+        pdf.probe(path, result)
+    elif ext in OFFICE:
+        office.probe(path, result)
+    elif ext in PLAIN_TEXT:
+        text.probe(path, result)
+    elif info.category == formats.OTHER and media.available():
+        # Незнакомое расширение: вдруг это медиафайл
+        media.probe(path, result)
+        if result.category == formats.OTHER:
+            result.warnings.clear()
