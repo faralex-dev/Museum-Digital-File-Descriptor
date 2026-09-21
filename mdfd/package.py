@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from . import checksums, hashing, kamis, textfmt, xmlio
+from . import FORMAT_VERSION, checksums, hashing, kamis, textfmt, xmlio
 from .model import CHECKSUMS_SUFFIX, KAMIS_SUFFIX, FileRecord, Item, ItemInfo
 from .probes import probe_file
 
@@ -28,7 +28,11 @@ MODE_LABELS = {
 }
 
 SYSTEM_NAMES = {".ds_store", "thumbs.db", "desktop.ini", ".localized", "icon\r"}
+# Подпапка, куда переносятся описания версии 1.x при обновлении до 2.0.
+# Её не учитывают ни описание, ни сверка.
+LEGACY_ARCHIVE_DIR = "_описание 1.x"
 LEGACY_KAMIS_SUFFIX = "_kamis.txt"
+LEGACY_KAMIS_SUFFIX_CASED = "_KAMIS.txt"  # так называла памятку версия 1.x
 
 OK, SKIPPED, ERROR, CANCELLED = "ok", "skipped", "error", "cancelled"
 STATUS_LABELS = {OK: "Готово", SKIPPED: "Пропущено", ERROR: "Ошибка", CANCELLED: "Отменено"}
@@ -89,7 +93,7 @@ def collect_files(folder: Path, warnings: list[str] | None = None) -> list[Path]
         keep = []
         for d in sorted(dirnames, key=natural_key):
             sub = here / d
-            if d.startswith("."):
+            if d.startswith(".") or d == LEGACY_ARCHIVE_DIR:
                 continue
             if sub.is_symlink():
                 warnings.append(f"Ссылка на папку пропущена: {sub.relative_to(folder).as_posix()}")
@@ -206,6 +210,13 @@ class Report:
 ProgressFn = Callable[[str, int], None]   # (текущий файл, прочитано байт с прошлого вызова)
 
 
+def _same_file(a: Path, b: Path) -> bool:
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
 def _relpath(item: Item, path: Path) -> str:
     return nfc(path.relative_to(item.root).as_posix())
 
@@ -272,7 +283,9 @@ class Describer:
 
     def _check_outputs(self, item: Item) -> str | None:
         """Возвращает текст ошибки/пропуска или None, если можно писать."""
-        existing = [p for p in (item.xml_path, item.checksums_path) if p.exists()]
+        legacy_xml = item.xml_path.exists() and xmlio.root_tag(item.xml_path) in xmlio.LEGACY_ROOT_TAGS
+        existing = [p for p in (item.xml_path, item.checksums_path) if p.exists()
+                    and not (p == item.xml_path and legacy_xml)]
         master_paths = {p.resolve() for p in item.sources}
         for target in (item.xml_path, item.checksums_path, item.kamis_path):
             if target.resolve() in master_paths:
@@ -363,6 +376,8 @@ class Describer:
             item.files.append(FileRecord(path, relpath, after.st_size, created, modified, sums, probe,
                                          path.suffix.lstrip(".")))
 
+        legacy = self._legacy_descriptions(item)
+
         # Всё готовится в памяти и записывается в конце одним шагом: при сбое
         # не остаётся XML без файла контрольных сумм.
         now = textfmt.local_datetime(datetime.now().timestamp())
@@ -371,13 +386,88 @@ class Describer:
                  item.checksums_path: checksums.render(item, hashing.hash_bytes(xml_data, self.algorithms), now)}
         if self.write_kamis:
             files[item.kamis_path] = kamis.render(item)
+        moved = self._archive_legacy(item, legacy)
         try:
             outputs = xmlio.write_all(files)
         except OSError as exc:
+            self._restore_legacy(moved)
             raise _write_error(exc, item.root) from exc
         n = len(item.files)
         message = f"Описано {n} {textfmt.plural(n, 'файл', 'файла', 'файлов')}."
+        if moved:
+            message += f" Описание версии 1.x сверено и перенесено в папку «{LEGACY_ARCHIVE_DIR}»."
         return Report(item, OK, message, warnings + self._item_warnings(item), outputs)
+
+    # --- описания версии 1.x ---
+
+    def _legacy_descriptions(self, item: Item) -> list[Path]:
+        """Файлы описаний 1.x, относящиеся к предмету, после сверки мастер-копий
+        с записанными в них суммами. Если что-то не сходится — DescribeError:
+        старое описание не трогаем, новое не создаём."""
+        single = len(item.sources) == 1 and item.base_name == item.sources[0].name
+        found: list[Path] = []
+        for cf in checksums.files_in(item.root):
+            parsed = checksums.parse(cf)
+            if parsed is None or parsed.version == FORMAT_VERSION:
+                continue
+            listed = parsed.by_file()
+            if single and item.sources[0].name not in listed:
+                continue  # описание другого файла в той же папке
+            problems = []
+            for name, sums in listed.items():
+                if name.lower().endswith(".xml"):
+                    continue
+                path = resolve(item.root, name)
+                if path is None:
+                    problems.append(f"описание 1.x «{cf.name}» относится к файлу «{name}», которого нет в папке "
+                                    "(вероятно, описание положено не в ту папку)")
+                    continue
+                try:
+                    actual = hashing.hash_file(path, sums.keys(), self._progress_for(name), self.cancel)
+                except OSError as exc:
+                    raise _read_error(exc, name) from exc
+                if any(actual[k] != v for k, v in sums.items()):
+                    problems.append(f"файл «{name}» изменился со времени описания 1.x")
+            if problems:
+                raise DescribeError("Описание 2.0 не создано: " + "; ".join(problems)
+                                    + ". Файлы версии 1.x оставлены как есть — выясните причину.")
+            stem = cf.name[:-4]
+            candidates = [cf]
+            candidates += [resolve(item.root, name) for name in listed if name.lower().endswith(".xml")]
+            candidates += [item.root / f"{stem}.xml", item.root / f"{stem}{LEGACY_KAMIS_SUFFIX_CASED}"]
+            for path in candidates:
+                if path is not None and path.is_file() and not any(_same_file(path, f) for f in found):
+                    found.append(path)
+        return found
+
+    @classmethod
+    def _archive_legacy(cls, item: Item, files: list[Path]) -> list[tuple[Path, Path]]:
+        if not files:
+            return []
+        archive = item.root / LEGACY_ARCHIVE_DIR
+        moved: list[tuple[Path, Path]] = []
+        try:
+            archive.mkdir(exist_ok=True)
+            for src in files:
+                dst = archive / src.name
+                n = 2
+                while dst.exists():
+                    dst = archive / f"{Path(src.name).stem} ({n}){Path(src.name).suffix}"
+                    n += 1
+                os.replace(src, dst)
+                moved.append((src, dst))
+        except OSError as exc:
+            cls._restore_legacy(moved)
+            raise _write_error(exc, item.root) from exc
+        return moved
+
+    @staticmethod
+    def _restore_legacy(moved: list[tuple[Path, Path]]) -> None:
+        for src, dst in moved:
+            try:
+                os.replace(dst, src)
+            except OSError:
+                log.exception("Не удалось вернуть %s", src)
 
     @staticmethod
     def _item_warnings(item: Item) -> list[str]:

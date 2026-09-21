@@ -98,7 +98,8 @@ def find_checksum_files(root: Path) -> list[Path]:
         return [root] if checksums.parse(root) is not None else []
     found = []
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = sorted(d for d in dirnames if not d.startswith("."))
+        from .package import LEGACY_ARCHIVE_DIR
+        dirnames[:] = sorted(d for d in dirnames if not d.startswith(".") and d != LEGACY_ARCHIVE_DIR)
         for name in sorted(filenames):
             lower = name.lower()
             if not lower.endswith(".txt") or name.startswith("."):

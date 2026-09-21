@@ -355,3 +355,77 @@ def test_single_file_item_ignores_neighbours(tmp_path):
     [check] = verify.verify_tree(tmp_path / "запись.mp3.checksums.txt")
     assert check.ok
     assert {f.status for f in check.files} == {verify.OK}
+
+
+# --- обновление описаний версии 1.x ---
+
+def _v1_folder(tmp_path, name="ГМИГ ЭФ-21 Фотография", master="ГМИГ ЭФ-21 Фотография.tif", source="scan_lzw.tif"):
+    folder = tmp_path / name
+    folder.mkdir()
+    shutil.copy(DATA / source, folder / master)
+    _legacy_description(folder, folder / master)
+    return folder
+
+
+def test_v1_description_is_verified_and_archived(tmp_path):
+    folder = _v1_folder(tmp_path)  # XML 1.x называется так же, как будущий XML 2.0
+    reports, _ = describe(folder)
+    assert reports[0].status == package.OK, reports[0].message
+    assert "перенесено" in reports[0].message
+    archive = folder / package.LEGACY_ARCHIVE_DIR
+    assert sorted(p.name for p in archive.iterdir()) == [
+        "ГМИГ ЭФ-21 Фотография.txt", "ГМИГ ЭФ-21 Фотография.xml", "ГМИГ ЭФ-21 Фотография_KAMIS.txt"]
+    assert ET.parse(folder / "ГМИГ ЭФ-21 Фотография.xml").getroot().tag == "DigitalMuseumItem"
+    [check] = verify.verify_tree(tmp_path)  # архив не проверяется и не мешает
+    assert check.ok and check.version == "2.0"
+    # повторный запуск: описание 2.0 уже есть
+    reports, _ = describe(folder)
+    assert reports[0].status == package.SKIPPED
+
+
+def test_v1_description_of_another_file_is_not_touched(tmp_path):
+    """Ошибка 1.x: описание файла ЭФ-18 оказалось в папке ЭФ-17."""
+    folder = _v1_folder(tmp_path, "ЭФ-17", "ЭФ-17.tif")
+    other = tmp_path / "ЭФ-18.tif"
+    shutil.copy(DATA / "photo_jfif.jpg", other)
+    (folder / "ЭФ-17.txt").unlink()
+    (folder / "ЭФ-17.xml").unlink()
+    (folder / "ЭФ-17_KAMIS.txt").unlink()
+    _legacy_description(folder, other)  # описание ЭФ-18 в папке ЭФ-17
+    before = sorted(p.name for p in folder.iterdir())
+    reports, _ = describe(folder)
+    assert reports[0].status == package.ERROR
+    assert "ЭФ-18.tif" in reports[0].message and "не в ту папку" in reports[0].message
+    assert sorted(p.name for p in folder.iterdir()) == before
+
+
+def test_v1_changed_file_is_not_upgraded(tmp_path):
+    folder = _v1_folder(tmp_path)
+    with open(folder / "ГМИГ ЭФ-21 Фотография.tif", "ab") as f:
+        f.write(b"x")
+    reports, _ = describe(folder)
+    assert reports[0].status == package.ERROR
+    assert "изменился со времени описания 1.x" in reports[0].message
+    assert not (folder / package.LEGACY_ARCHIVE_DIR).exists()
+
+
+def test_v1_upgrade_in_files_mode_only_takes_own_description(tmp_path):
+    shutil.copy(DATA / "photo_jfif.jpg", tmp_path / "a.jpg")
+    shutil.copy(DATA / "image.png", tmp_path / "b.png")
+    _legacy_description(tmp_path, tmp_path / "a.jpg")
+    _legacy_description(tmp_path, tmp_path / "b.png")
+    reports, _ = describe(tmp_path / "a.jpg")
+    assert reports[0].status == package.OK
+    archived = sorted(p.name for p in (tmp_path / package.LEGACY_ARCHIVE_DIR).iterdir())
+    assert archived == ["a.txt", "a.xml", "a_KAMIS.txt"]
+    assert (tmp_path / "b.xml").exists() and (tmp_path / "b.txt").exists()
+
+
+def test_v1_files_restored_if_writing_fails(tmp_path, monkeypatch):
+    folder = _v1_folder(tmp_path)
+    monkeypatch.setattr(xmlio, "write_all", lambda files: (_ for _ in ()).throw(OSError(28, "No space left")))
+    reports, _ = describe(folder)
+    assert reports[0].status == package.ERROR
+    assert (folder / "ГМИГ ЭФ-21 Фотография.txt").exists()
+    assert ET.parse(folder / "ГМИГ ЭФ-21 Фотография.xml").getroot().tag == "GMIG"
+    assert not list((folder / package.LEGACY_ARCHIVE_DIR).iterdir())
