@@ -743,7 +743,10 @@ class AboutTab(ttk.Frame):
 class App:
     def __init__(self):
         self.settings = Settings.load()
+        from .probes.media import ensure_utf8_locale
+        ensure_utf8_locale()  # до создания окна: Tk выбирает локаль при запуске
         self.root = TkinterDnD.Tk() if TkinterDnD is not None else tk.Tk()
+        ensure_utf8_locale()  # и после — на случай, если Tk её всё же сбросил
         self.root.title(f"{APP_NAME} {__version__}")
         self.root.minsize(760, 600)
         notebook = ttk.Notebook(self.root)

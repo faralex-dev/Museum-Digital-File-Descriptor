@@ -93,6 +93,11 @@ def cmd_verify(args) -> int:
 
 def cmd_info(args) -> int:
     from .probes import probe_file
+    if args.with_tk:
+        # Проверка сценария окна: Tk при создании может сбросить локаль (ошибка 2.0.2)
+        import tkinter
+        root = tkinter.Tk()
+        root.withdraw()
     path = Path(args.path)
     result = probe_file(path)
     print(f"{path.name}: {result.format_name} ({result.category})")
@@ -151,6 +156,7 @@ def build_parser() -> argparse.ArgumentParser:
     i = sub.add_parser("info", help="показать сведения о файле")
     i.add_argument("path")
     i.add_argument("--hash", action="store_true", help="посчитать контрольные суммы")
+    i.add_argument("--with-tk", action="store_true", help=argparse.SUPPRESS)
     i.set_defaults(func=cmd_info)
 
     g = sub.add_parser("gui", help="графический интерфейс")

@@ -95,6 +95,9 @@ jobs:
           cp tests/data/video_h264_aac.mp4 "Видео ＂проверка？..＂.mp4"
           env -i HOME="$HOME" PATH=/usr/bin:/bin dist/MuseumDigitalFileDescriptor-cli/mdfd info "Видео ＂проверка？..＂.mp4" | tee frozen.log
           grep -q "Продолжительность" frozen.log
+          # То же после создания окна Tk — как в графическом интерфейсе
+          env -i HOME="$HOME" PATH=/usr/bin:/bin dist/MuseumDigitalFileDescriptor-cli/mdfd info --with-tk "Видео ＂проверка？..＂.mp4" | tee frozen-tk.log
+          grep -q "Продолжительность" frozen-tk.log
       - name: Архив (Windows)
         if: runner.os == 'Windows'
         shell: pwsh

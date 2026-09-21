@@ -75,30 +75,39 @@ TRANSLATE = {
 }
 
 
-_locale_checked = False
+_UTF8_LOCALES = ("C.UTF-8", "en_US.UTF-8", "ru_RU.UTF-8", "UTF-8")
+
+
+def _is_utf8(name: str) -> bool:
+    return "utf8" in name.lower().replace("-", "")
 
 
 def ensure_utf8_locale() -> None:
     """MediaInfo на macOS и Linux переводит путь к файлу в байты по текущей
     локали. У приложения, запущенного из Finder, локали нет («C»), и тогда
-    файлы с русскими буквами в пути не открываются. Включаем UTF-8 для имён."""
-    global _locale_checked
-    if _locale_checked or sys.platform == "win32":
+    файлы с русскими буквами в пути не открываются.
+
+    Вызывается перед каждым обращением к MediaInfo: окно Tk при создании
+    сбрасывает локаль в «C» (ошибка 2.0.2). Переменная LC_CTYPE задаётся,
+    чтобы и сам Tk при запуске выбрал UTF-8."""
+    if sys.platform == "win32":
         return
-    _locale_checked = True
     import locale
+    import os
     try:
-        current = locale.setlocale(locale.LC_CTYPE, "")
-    except locale.Error:
-        current = locale.setlocale(locale.LC_CTYPE)
-    if "utf" in current.lower().replace("-", ""):
-        return
-    for name in ("C.UTF-8", "en_US.UTF-8", "ru_RU.UTF-8", "UTF-8"):
-        try:
-            locale.setlocale(locale.LC_CTYPE, name)
+        if _is_utf8(locale.setlocale(locale.LC_CTYPE)):
             return
+    except locale.Error:
+        pass
+    for name in ("", *_UTF8_LOCALES):
+        try:
+            chosen = locale.setlocale(locale.LC_CTYPE, name)
         except locale.Error:
             continue
+        if _is_utf8(chosen):
+            if not _is_utf8(os.environ.get("LC_ALL", "") or os.environ.get("LC_CTYPE", "")):
+                os.environ["LC_CTYPE"] = chosen
+            return
 
 
 def available() -> bool:

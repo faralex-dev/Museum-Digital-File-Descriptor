@@ -233,7 +233,10 @@ def test_media_with_cyrillic_path_without_locale(tmp_path):
     saved = locale.setlocale(locale.LC_CTYPE)
     try:
         locale.setlocale(locale.LC_CTYPE, "C")
-        media._locale_checked = False
+        r = probe_file(path)
+        assert r.warnings == [], r.warnings
+        # окно Tk сбрасывает локаль уже после запуска программы (ошибка 2.0.2)
+        locale.setlocale(locale.LC_CTYPE, "C")
         r = probe_file(path)
         assert r.warnings == [], r.warnings
         assert {p.key for p in r.props} >= {"duration", "resolution", "video_codec"}
