@@ -178,6 +178,17 @@ def _compression(track) -> str:
     return "без сжатия" if code == "None" else TRANSLATE.get(code, code)
 
 
+# Служебные названия дорожек, которые ставят программы записи, — ничего не сообщают
+GENERIC_TRACK_TITLES = {"core media video", "core media audio", "core media metadata", "soundhandler",
+                        "videohandler", "sound media handler", "video media handler", "apple sound media handler",
+                        "apple video media handler", "mainconcept video media handler", "gpac isomedia handler"}
+
+
+def _track_title(track) -> str:
+    title = _first(track.title)
+    return "" if title.strip().casefold() in GENERIC_TRACK_TITLES else title
+
+
 def _language(track) -> str:
     code = _first(track.language).lower()
     if not code:
@@ -225,7 +236,7 @@ def _video_track(track, n: int) -> Track:
     if duration:
         add("duration", "Продолжительность", textfmt.duration(duration), duration)
     add("language", "Язык (метка в файле)", _language(track))
-    add("title", "Название дорожки", _first(track.title))
+    add("title", "Название дорожки", _track_title(track))
     return t
 
 
@@ -249,7 +260,7 @@ def _audio_track(track, n: int) -> Track:
     if duration:
         add("duration", "Продолжительность", textfmt.duration(duration), duration)
     add("language", "Язык (метка в файле)", _language(track))
-    add("title", "Название дорожки", _first(track.title))
+    add("title", "Название дорожки", _track_title(track))
     return t
 
 
@@ -258,7 +269,7 @@ def _text_track(track, n: int) -> Track:
     add = _adder(t)
     add("format", "Формат", _first(track.format))
     add("language", "Язык (метка в файле)", _language(track))
-    add("title", "Название дорожки", _first(track.title))
+    add("title", "Название дорожки", _track_title(track))
     return t
 
 
