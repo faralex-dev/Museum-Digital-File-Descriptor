@@ -91,6 +91,7 @@ BY_EXTENSION: dict[str, FormatInfo] = {
     "jp2": _F("JPEG 2000 (JP2)", IMAGE, "image/jp2", "x-fmt/392", "JP2 (JPEG 2000 part 1)"),
     "j2k": _F("JPEG 2000 (кодовый поток)", IMAGE, "image/j2k"),
     "webp": _F("WebP", IMAGE, "image/webp"),
+    "jxl": _F("JPEG XL", IMAGE, "image/jxl", "fmt/1485", "JPEG XL"),
     "heic": _F("HEIC (High Efficiency Image)", IMAGE, "image/heic", "fmt/1101", "High Efficiency Image File Format", (NOTE_LOSSY,)),
     "heif": _F("HEIF (High Efficiency Image)", IMAGE, "image/heif", "fmt/1101", "High Efficiency Image File Format", (NOTE_LOSSY,)),
     "psd": _F("Adobe Photoshop", IMAGE, "image/vnd.adobe.photoshop", notes=(NOTE_PROPRIETARY,)),

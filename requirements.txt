@@ -3,6 +3,7 @@
 pymediainfo>=7.0
 Pillow>=10.0
 pypdf>=4.0
+brotli>=1.1
 olefile>=0.47
 # Необязательные: RAW-файлы камер и перетаскивание файлов в окно
 rawpy>=0.19

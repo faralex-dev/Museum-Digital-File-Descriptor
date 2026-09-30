@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .. import formats, textfmt
 from ..model import ProbeResult
-from . import embedded
+from . import embedded, jxl
 
 try:
     from PIL import Image, ImageCms
@@ -431,8 +431,60 @@ def _embedded(img, tags) -> tuple[dict, dict]:
     return xmp, iptc
 
 
+def _probe_jxl(path: Path, result: ProbeResult) -> ProbeResult:
+    """JPEG XL: Pillow формат не читает, сведения берутся из заголовка файла."""
+    try:
+        info = jxl.read(path)
+    except (jxl.JxlError, OSError) as exc:
+        result.warnings.append(f"Изображение не открылось: {exc}")
+        return result
+    ifd0, exif_ifd, gps = {}, {}, {}
+    if info.exif and Image is not None:
+        try:
+            exif = Image.Exif()
+            exif.load(b"Exif\x00\x00" + info.exif)
+            ifd0, exif_ifd, gps = dict(exif), dict(exif.get_ifd(EXIF_IFD)), dict(exif.get_ifd(GPS_IFD))
+        except Exception:  # noqa: BLE001 - повреждённый EXIF не мешает описанию
+            pass
+    _set_resolution(result, info.width, info.height, _dpi_from_exif(ifd0))
+
+    color = "оттенки серого" if info.grey else "RGB"
+    if info.alpha:
+        color += " с прозрачностью"
+    result.add("color_mode", "Цветовая модель", color, ("L" if info.grey else "RGB") + ("A" if info.alpha else ""))
+    bits = f"{info.bits} бит на канал" + (" (с плавающей точкой)" if info.floating else "")
+    result.add("bit_depth", "Глубина цвета", bits, info.bits)
+
+    if info.jpeg_reconstruction:
+        # исходный JPEG восстанавливается из такого файла байт в байт, но сам он сжат с потерями
+        kind, method = LOSSY, "JPEG, перепакованный в JPEG XL без дополнительных потерь"
+    elif info.xyb:
+        kind, method = LOSSY, "JPEG XL"
+    else:
+        kind, method = LOSSLESS, "JPEG XL"
+    result.add("compression", "Метод сжатия", _compression_text(kind, method), method)
+    if kind == LOSSY:
+        result.notes.append(formats.NOTE_LOSSY)
+    if info.animation:
+        result.add("animation", "Анимация", "есть")
+    if info.icc:
+        result.add("icc_profile", "Цветовой профиль (ICC)", "встроен (описание без декодирования не читается)")
+    else:
+        result.add("colour_encoding", "Цветовое пространство", info.colour)
+    result.add("jxl_structure", "Структура файла",
+               "контейнер ISO/IEC 18181-2" if info.container else "кодовый поток без контейнера")
+    if info.exif or info.xmp:
+        _add_camera_info(result, ifd0, exif_ifd, gps, embedded.parse_xmp(info.xmp))
+    if info.compressed_metadata:
+        result.warnings.append(f"Метаданные {' и '.join(info.compressed_metadata)} сжаты (Brotli) и не прочитаны: "
+                               "установите пакет brotli.")
+    return result
+
+
 def probe(path: Path, result: ProbeResult) -> ProbeResult:
     ext = path.suffix.lower().lstrip(".")
+    if ext == "jxl":
+        return _probe_jxl(path, result)
     raw_done = ext in RAW_EXTENSIONS and _probe_raw(path, result)
 
     if Image is None:

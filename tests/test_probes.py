@@ -518,3 +518,61 @@ def test_opus_channels_in_mp4(tmp_path):
     assert _mp4_opus_channels(path) == 2
     path.write_bytes(box(b"ftyp", b"mp42\0\0\0\0") + box(b"mdat", b"\0" * 10))
     assert _mp4_opus_channels(path) is None
+
+
+@pytest.mark.parametrize("name,compression,color,bits", [
+    ("lossless.jxl", "без потерь (JPEG XL)", "RGB", "8 бит на канал"),
+    ("lossy.jxl", "с потерями (JPEG XL)", "RGB", "8 бит на канал"),
+    ("gray16.jxl", "без потерь (JPEG XL)", "оттенки серого", "16 бит на канал"),
+    ("alpha.jxl", "без потерь (JPEG XL)", "RGB с прозрачностью", "8 бит на канал"),
+])
+def test_jpeg_xl(name, compression, color, bits):
+    r, p = props(name)
+    assert r.puid == "fmt/1485"
+    assert r.format_name == "JPEG XL"
+    assert p["compression"] == compression
+    assert p["color_mode"] == color
+    assert p["bit_depth"] == bits
+    assert p["pixel_size"] == ("40 × 30 пикс." if name == "gray16.jxl" else "120 × 80 пикс.")
+    assert ("с потерями" in compression) == bool(r.notes)
+
+
+@pytest.mark.parametrize("name", ["scan_exif.jxl", "scan_exif_brotli.jxl"])
+def test_jpeg_xl_exif(name):
+    """EXIF в контейнере — открытый и сжатый Brotli (так cjxl пишет по умолчанию)."""
+    r, p = props(name)
+    assert p["resolution"] == "600 точек/дюйм"
+    assert p["camera"] == "Epson Perfection V850"
+    assert p["author"] == "Хранитель"
+    assert p["software"] == "make_pdf.py"
+    assert p["jxl_structure"] == "контейнер ISO/IEC 18181-2"
+    assert p["colour_encoding"] == "sRGB"
+
+
+def test_jpeg_xl_from_jpeg_is_lossy():
+    r, p = props("from_jpeg.jxl")
+    assert p["compression"].startswith("с потерями (JPEG, перепакованный")
+    assert r.notes == [formats.NOTE_LOSSY]
+    assert p["icc_profile"].startswith("встроен")
+    assert p["camera"]
+
+
+def test_jpeg_xl_without_brotli(monkeypatch):
+    monkeypatch.setitem(sys.modules, "brotli", None)
+    r = probe_file(DATA / "scan_exif_brotli.jxl")
+    assert any("Brotli" in w for w in r.warnings)
+    assert {p.key for p in r.props} >= {"pixel_size", "compression"}
+
+
+def test_jpeg_xl_broken(tmp_path):
+    from mdfd import verify
+    data = (DATA / "scan_exif.jxl").read_bytes()
+    cut = tmp_path / "обрезан.jxl"
+    cut.write_bytes(data[:-20])
+    assert "выходит за конец файла" in verify.open_check(cut)
+    junk = tmp_path / "не тот.jxl"
+    junk.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\0" * 40)
+    assert "нет сигнатуры" in verify.open_check(junk)
+    assert probe_file(junk).warnings
+    assert verify.open_check(DATA / "lossless.jxl") is None
+    assert verify.open_check(DATA / "scan_exif.jxl") is None

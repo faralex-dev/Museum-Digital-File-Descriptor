@@ -128,6 +128,10 @@ def open_check(path: Path) -> str | None:
                     for frame in range(getattr(img, "n_frames", 1)):
                         img.seek(frame)
                         img.load()
+        elif ext == ".jxl":
+            # без декодера проверяется структура файла; целостность данных подтверждает контрольная сумма
+            from .probes import jxl
+            jxl.check(path)
         elif ext == ".pdf":
             from pypdf import PdfReader
             reader = PdfReader(str(path), strict=False)

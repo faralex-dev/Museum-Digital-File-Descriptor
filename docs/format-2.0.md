@@ -126,7 +126,9 @@
   `bwf_description`, `bwf_coding_history`.
 * **Изображение:** `compression` (с потерями / без потерь / без сжатия + метод),
   `pixel_size`, `resolution` (точек на дюйм), `print_size`, `color_mode`,
-  `bit_depth`, `icc_profile`, `frames`; из EXIF, XMP и IPTC — `author`,
+  `bit_depth`, `icc_profile`, `frames`; у JPEG XL — ещё `colour_encoding`
+  (цветовое пространство, если оно задано без ICC-профиля), `jxl_structure`,
+  `animation`; из EXIF, XMP и IPTC — `author`,
   `copyright`, `title`, `description`, `keywords`, `camera`, `camera_serial`,
   `lens`, `exposure` (выдержка, диафрагма, ISO, фокусное расстояние),
   `exif_date`, `xmp_date` (дата создания из XMP, если нет даты съёмки — например,

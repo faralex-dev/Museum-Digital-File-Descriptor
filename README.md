@@ -110,7 +110,7 @@ mdfd info видео.mp4 --hash
 |---|---|
 | Видео | MP4, MOV, AVI, MKV, WebM, WMV, MPEG, TS/MTS, MXF, FLV и др. (через MediaInfo) |
 | Аудио | WAV/BWF, FLAC, MP3, AAC, M4A, OGG/Opus, AIFF, WMA |
-| Изображения | TIFF, JPEG, PNG, JPEG 2000, WebP, GIF, BMP, DNG и RAW камер (CR2, NEF, ARW…, нужен rawpy), HEIC |
+| Изображения | TIFF, JPEG, PNG, JPEG 2000, JPEG XL, WebP, GIF, BMP, DNG и RAW камер (CR2, NEF, ARW…, нужен rawpy), HEIC |
 | Текст | PDF (версия, PDF/A, страницы, текстовый слой), DOCX, DOC, ODT, RTF, TXT, CSV, HTML, XML, а также XLSX, PPTX, ODS, ODP |
 
 Для остальных файлов записываются размер, даты и контрольные суммы.
@@ -133,7 +133,7 @@ pyinstaller packaging/mdfd.spec
 | Модуль | Что делает |
 |---|---|
 | `mdfd/hashing/` | контрольные суммы; `_streebog.c` — ГОСТ 34.11-2018 на C, `streebog.py` — запасная реализация на Python |
-| `mdfd/probes/` | технические сведения: `media` (MediaInfo), `image` (Pillow, rawpy), `pdf` (pypdf), `office`, `text` |
+| `mdfd/probes/` | технические сведения: `media` (MediaInfo), `image` (Pillow, rawpy), `jxl` (заголовок JPEG XL), `pdf` (pypdf), `office`, `text` |
 | `mdfd/package.py` | поиск файлов мастер-копии, создание описания |
 | `mdfd/xmlio.py`, `checksums.py`, `kamis.py` | запись XML, файла контрольных сумм, памятки и CSV |
 | `mdfd/verify.py` | сверка |

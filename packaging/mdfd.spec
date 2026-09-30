@@ -13,7 +13,7 @@ from mdfd import __version__  # noqa: E402
 
 binaries = collect_dynamic_libs("pymediainfo")
 datas = []
-hiddenimports = ["mdfd.hashing._streebog", "PIL.ImageCms"]
+hiddenimports = ["mdfd.hashing._streebog", "PIL.ImageCms", "brotli"]
 try:
     import tkinterdnd2  # noqa: F401
     datas += collect_data_files("tkinterdnd2")
